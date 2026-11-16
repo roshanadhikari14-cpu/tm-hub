@@ -214,7 +214,7 @@ async function runSlot(slot, manual = false) {
     throw e;
   } finally {
     const c = loadConfig();
-    if (!manual) c.last[slot] = istNow().date;
+    if (!manual && entry.sent > 0) c.last[slot] = istNow().date;
     c.log = [entry, ...(c.log || [])].slice(0, 60);
     saveConfig(c);
     running = false;
@@ -416,6 +416,8 @@ app.post('/api/send', async (req, res) => {
       includeIndividual: b.individual !== false,
     });
     const c = loadConfig();
+    const full = !b.test && !Array.isArray(b.names) && b.team !== false && b.individual !== false;
+    if (full && results.some((r) => r.ok) && mins(istNow().time) >= mins(DEFAULTS.slots[slot]) - 30) c.last[slot] = istNow().date;
     c.log = [{ at: new Date().toISOString(), slot, manual: true, test: Boolean(b.test), sent: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).map((r) => `${r.who}: ${r.error}`), ok: results.every((r) => r.ok) }, ...(c.log || [])].slice(0, 60);
     saveConfig(c);
     res.json({ results });
