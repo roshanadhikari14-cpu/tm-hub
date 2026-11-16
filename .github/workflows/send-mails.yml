@@ -1,0 +1,25 @@
+# Nudges the TM Hub to send the 11 AM, 5 PM and 8 PM (IST) mails on time.
+# Vercel's own scheduler on the free plan can be up to an hour late, so this
+# calls the same address a few times around each slot. The hub sends each mail
+# once a day only; extra calls are ignored.
+name: Send TM mails
+on:
+  schedule:
+    # Times are UTC. IST = UTC + 5:30. Monday to Saturday.
+    - cron: '26,31,37,45,58 5 * * 1-6'   # 11:00 IST
+    - cron: '26,31,37,45,58 11 * * 1-6'  # 17:00 IST
+    - cron: '26,31,37,45,58 14 * * 1-6'  # 20:00 IST
+  workflow_dispatch:
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the hub
+        run: |
+          h=$(date -u +%-H)
+          if [ "$h" -ge 5 ] && [ "$h" -le 7 ]; then slot=morning
+          elif [ "$h" -ge 11 ] && [ "$h" -le 13 ]; then slot=progress
+          elif [ "$h" -ge 14 ] && [ "$h" -le 16 ]; then slot=closure
+          else echo "No mail due now"; exit 0; fi
+          curl -sS --max-time 120 "https://tm-task-mailer.vercel.app/api/cron/$slot"
