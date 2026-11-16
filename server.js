@@ -274,7 +274,7 @@ if (!CLOUD) setInterval(() => {
 // ---------- Routes ----------
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '3mb' }));
 
 // ---------- Login gate and cloud storage ----------
 // On the internet every data route needs a Google login; on your own PC it does not.
@@ -349,27 +349,35 @@ app.get('/api/status', (req, res) => res.json(status(req)));
 const VOICES = path.join(DATA, 'voices');
 const VOICE_TYPES = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' };
 const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-const voiceFile = (name) => {
+// kind '' is the short greeting; kind 'sample' is the longer recording a TM shares so the
+// hub can read their numbers in their own voice. A sample is kept only with their consent.
+const voiceFile = (name, kind = '') => {
   for (const ext of Object.values(VOICE_TYPES)) {
-    const f = path.join(VOICES, `${slug(name)}.${ext}`);
+    const f = path.join(VOICES, `${slug(name)}${kind ? `.${kind}` : ''}.${ext}`);
     if (fs.existsSync(f)) return { f, ext };
   }
   return null;
 };
 // Only the TM can record their own greeting. On a PC copy without sign-in, anyone at that PC can.
+const consentFile = (name) => path.join(VOICES, `${slug(name)}.consent.json`);
+const kindOf = (req) => (req.query.kind === 'sample' ? 'sample' : '');
 const isSelf = (req, m) => !GATED || (req.user && req.user === String(m.email || '').toLowerCase());
 
 app.get('/api/voice', (req, res) => {
   const out = {};
   for (const m of team()) {
     const v = voiceFile(m.name);
-    out[m.name] = { has: Boolean(v), v: v ? Math.round(fs.statSync(v.f).mtimeMs) : 0, mine: Boolean(isSelf(req, m) && GATED), canRecord: Boolean(isSelf(req, m)), canRemove: Boolean(isSelf(req, m) || isOwner(req)) };
+    out[m.name] = { has: Boolean(v), v: v ? Math.round(fs.statSync(v.f).mtimeMs) : 0, mine: Boolean(isSelf(req, m) && GATED), canRecord: Boolean(isSelf(req, m)), canRemove: Boolean(isSelf(req, m) || isOwner(req)), sample: Boolean(voiceFile(m.name, 'sample')), consentAt: (readJson(consentFile(m.name), null) || {}).at || null };
   }
   res.json({ voices: out });
 });
 app.get('/api/voice/:name', (req, res) => {
-  const v = voiceFile(req.params.name);
-  if (!v) return res.status(404).json({ error: 'No greeting recorded.' });
+  const kind = kindOf(req);
+  const who = team().find((x) => x.name === req.params.name);
+  // A voice sample is for the TM and the owner only.
+  if (kind && !(who && (isSelf(req, who) || isOwner(req)))) return res.status(403).json({ error: 'Not allowed.' });
+  const v = voiceFile(req.params.name, kind);
+  if (!v) return res.status(404).json({ error: 'Nothing recorded.' });
   res.set('Cache-Control', 'private, max-age=0, must-revalidate');
   res.type(Object.keys(VOICE_TYPES).find((k) => VOICE_TYPES[k] === v.ext)).send(fs.readFileSync(v.f));
 });
@@ -381,19 +389,25 @@ app.post('/api/voice/:name', (req, res) => {
   if (!ext) return res.status(400).json({ error: 'This browser recorded a sound format the hub does not accept.' });
   const buf = Buffer.from(String(req.body.data || ''), 'base64');
   if (buf.length < 800) return res.status(400).json({ error: 'The recording is empty. Check the microphone and try again.' });
-  if (buf.length > 400 * 1024) return res.status(400).json({ error: 'The recording is too long. Keep it under 6 seconds.' });
+  const kind = kindOf(req);
+  if (kind && req.body.consent !== true) return res.status(400).json({ error: 'Tick the agreement box first.' });
+  if (buf.length > (kind ? 1500 : 400) * 1024) return res.status(400).json({ error: 'The recording is too long.' });
   fs.mkdirSync(VOICES, { recursive: true });
   let old;
-  while ((old = voiceFile(m.name))) fs.rmSync(old.f, { force: true });
-  fs.writeFileSync(path.join(VOICES, `${slug(m.name)}.${ext}`), buf);
+  while ((old = voiceFile(m.name, kind))) fs.rmSync(old.f, { force: true });
+  fs.writeFileSync(path.join(VOICES, `${slug(m.name)}${kind ? `.${kind}` : ''}.${ext}`), buf);
+  // Keep a record of who agreed, when, and to what.
+  if (kind) writeJson(consentFile(m.name), { by: req.user || 'this PC (no sign-in)', at: new Date().toISOString(), agreed: 'My recorded sample may be used to create a copy of my voice that reads out my own task numbers inside the TM Hub. I can withdraw at any time, which deletes the sample.' });
   res.json({ ok: true });
 });
 app.delete('/api/voice/:name', (req, res) => {
   const m = team().find((x) => x.name === req.params.name);
   if (!m) return res.status(404).json({ error: 'Unknown TM.' });
-  if (!isSelf(req, m) && !isOwner(req)) return res.status(403).json({ error: 'Only the TM or the owner can remove this greeting.' });
+  if (!isSelf(req, m) && !isOwner(req)) return res.status(403).json({ error: 'Only the TM or the owner can remove this.' });
+  const kind = kindOf(req);
   let old;
-  while ((old = voiceFile(m.name))) fs.rmSync(old.f, { force: true });
+  while ((old = voiceFile(m.name, kind))) fs.rmSync(old.f, { force: true });
+  if (kind) fs.rmSync(consentFile(m.name), { force: true });
   res.json({ ok: true });
 });
 

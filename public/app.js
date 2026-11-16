@@ -921,7 +921,7 @@ async function paintVoice() {
   const all = await voices(true);
   if (list)
     list.innerHTML = Object.entries(all)
-      .map(([n, v]) => `<span class="chip ${v.has ? 'ok' : ''}">${v.has ? '🎙' : '○'} ${esc(n.split(' ')[0])}${v.has ? ` <button class="mini" data-vplay="${esc(n)}">Play</button>${v.canRemove ? `<button class="mini" data-vdel="${esc(n)}">Remove</button>` : ''}` : ' · not recorded'}</span>`)
+      .map(([n, v]) => `<span class="chip ${v.has ? 'ok' : ''}">${v.has ? '🎙' : '○'} ${esc(n.split(' ')[0])}${v.has ? ` <button class="mini" data-vplay="${esc(n)}">Play</button>${v.canRemove ? `<button class="mini" data-vdel="${esc(n)}">Remove</button>` : ''}` : ' · no greeting'}${v.sample ? ' · voice sample ✓' : ''}</span>`)
       .join('');
   if (box) {
     const n = box.dataset.voice;
@@ -930,7 +930,9 @@ async function paintVoice() {
       (v.has ? `<button class="mini" data-vplay="${esc(n)}">▶ Play greeting</button>` : '') +
       (v.canRecord ? `<button class="mini" data-vrec="${esc(n)}">🎙 ${v.has ? 'Record again' : 'Record my greeting'}</button>` : '') +
       (v.has && v.canRemove ? `<button class="mini" data-vdel="${esc(n)}">Remove</button>` : '') +
-      (!v.has && !v.canRecord ? '<span class="voice-none">No greeting recorded yet</span>' : '');
+      (v.canRecord && !v.sample ? `<button class="mini" data-vshare="${esc(n)}">🗣 Share my voice for read-outs</button>` : '') +
+      (v.sample ? `<span class="voice-none">✓ Voice sample shared${v.consentAt ? ` on ${esc(fmtTime(v.consentAt))}` : ''}</span>${v.canRemove ? `<button class="mini" data-vwithdraw="${esc(n)}">Withdraw</button>` : ''}` : '') +
+      (!v.has && !v.canRecord && !v.sample ? '<span class="voice-none">No greeting recorded yet</span>' : '');
   }
 }
 new MutationObserver(() => paintVoice()).observe(view, { childList: true, subtree: true });
@@ -940,7 +942,7 @@ const repaintVoice = () => {
 };
 
 // Records up to five seconds from the microphone and saves it as this TM's greeting.
-async function recordGreeting(name, btn) {
+async function recordGreeting(name, btn, kind = '', seconds = 5) {
   if (!navigator.mediaDevices || !window.MediaRecorder) return toast('This browser cannot record sound. Try Chrome.', 'err');
   let stream;
   try {
@@ -954,7 +956,7 @@ async function recordGreeting(name, btn) {
   rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
   const stopped = new Promise((r) => (rec.onstop = r));
   rec.start();
-  let left = 5;
+  let left = seconds;
   btn.dataset.recording = 1;
   btn.textContent = `■ Stop (${left}s)`;
   const tick = setInterval(() => {
@@ -978,13 +980,44 @@ async function recordGreeting(name, btn) {
       fr.onload = () => r(String(fr.result).split(',')[1]);
       fr.readAsDataURL(blob);
     });
-    await api(`/api/voice/${encodeURIComponent(name)}`, { body: { type: blob.type, data } });
-    toast('Greeting saved', 'ok');
+    await api(`/api/voice/${encodeURIComponent(name)}${kind ? `?kind=${kind}` : ''}`, { body: { type: blob.type, data, consent: kind ? true : undefined } });
+    toast(kind ? 'Voice sample saved. Thank you!' : 'Greeting saved', 'ok');
   } catch (e) {
     toast(e.message, 'err');
   }
+  if (kind) $('#modal').hidden = true;
   repaintVoice();
 }
+// The agreement a TM reads and ticks before sharing a voice sample.
+const VOICE_SCRIPT = 'Hello, this is my voice sample for the T M Hub. Today I will check my onboarding tasks, call the parents I have not spoken to for fifteen days, book the pending I C 2 and evaluation classes, and close my open concerns. Numbers like twelve, thirty five and ninety minutes should sound clear. Thank you.';
+function shareVoice(name) {
+  const m = $('#modal');
+  $('#modalCard').innerHTML = `<h3>Share my voice for read-outs</h3>
+    <div class="note" style="font-size:13.5px;line-height:1.55">This records about 30 seconds of you reading the text below. It is used to make a copy of your voice that reads out <b>your own task numbers</b> inside the TM Hub, and for nothing else. You can withdraw whenever you like; that deletes the recording.</div>
+    <div class="callout" style="margin:12px 0;font-size:14px;line-height:1.6">“${esc(VOICE_SCRIPT)}”</div>
+    <label class="toggle" style="margin-bottom:14px"><input type="checkbox" id="vAgree"><span class="sw"></span>I agree, and this is my own decision</label>
+    <div class="actions"><button class="btn btn-ghost" id="vCancel">Cancel</button><button class="btn btn-primary" id="vGo" disabled>🎙 Start recording</button></div>`;
+  m.hidden = false;
+  $('#vAgree').onchange = (e) => ($('#vGo').disabled = !e.target.checked);
+  $('#vCancel').onclick = () => (m.hidden = true);
+  $('#vGo').onclick = (e) => {
+    $('#vAgree').disabled = true;
+    $('#vCancel').hidden = true;
+    e.currentTarget.onclick = null;
+    recordGreeting(name, e.currentTarget, 'sample', 40);
+  };
+}
+document.addEventListener('click', async (e) => {
+  const w = e.target.closest && e.target.closest('[data-vshare], [data-vwithdraw]');
+  if (!w) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (w.dataset.vshare) return shareVoice(w.dataset.vshare);
+  if (await confirmBox('Withdraw your voice sample?', 'The recording and the agreement are deleted. Read-outs go back to the standard voice.', 'Withdraw')) {
+    await fetch(`/api/voice/${encodeURIComponent(w.dataset.vwithdraw)}?kind=sample`, { method: 'DELETE' }).catch(() => {});
+    repaintVoice();
+  }
+});
 document.addEventListener('click', async (e) => {
   const b = e.target.closest && e.target.closest('[data-vplay], [data-vrec], [data-vdel]');
   if (!b || b.dataset.recording) return;
