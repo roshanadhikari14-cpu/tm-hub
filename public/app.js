@@ -322,7 +322,7 @@ async function dashboard() {
         p = (100 * sum('done')) / (sum('morning') || 1);
       } else {
         val = `<span data-count="${sum('pending')}">0</span><small> pending</small>`;
-        meta = b.slot === 'morning' ? `${sum('flagged')} overdue / ageing` : `${sum('done')} closed since 11 AM`;
+        meta = b.slot === 'morning' ? `${sum('flagged')} overdue / ageing` : `${sum('done')} closed since 10 AM`;
         p = sum('morning') ? (100 * sum('done')) / sum('morning') : 100;
       }
       return `<span class="rise kpi-wrap" style="--i:${i}" data-go="#/tasks/${t.key}" data-bit="SpotlightCard" data-props="${esc(JSON.stringify({ theme: 'light', spotlightColor: crit ? '#e0563f' : '#5b60d6', intensity: 0.22, spotlightSize: 260, className: `kpi${crit ? ' crit' : ''}` }))}">
@@ -344,7 +344,7 @@ async function dashboard() {
     <div class="section-title"><h2>Team tasks</h2><span>${esc(SLOT_LABEL[b.slot])}. Click a tile for the full list.</span></div>
     <div class="grid g-kpi">${kpis}</div>
     <div class="grid g-2" style="margin-top:18px">
-      <div class="card rise" style="--i:9"><h3>Task board</h3><div class="sub" style="margin-bottom:12px">${b.slot === 'morning' ? 'Pending per TM. Red needs attention today.' : 'Done since 11 AM, of the morning total.'} Click a cell to open that TM.</div>${heatmap(b)}</div>
+      <div class="card rise" style="--i:9"><h3>Task board</h3><div class="sub" style="margin-bottom:12px">${b.slot === 'morning' ? 'Pending per TM. Red needs attention today.' : 'Done since 10 AM, of the morning total.'} Click a cell to open that TM.</div>${heatmap(b)}</div>
       <div class="card rise" style="--i:10"><h3>Needs attention</h3><div class="sub" style="margin-bottom:12px">Critical items by TM</div>
         <div class="attn">${
           critTMs.length
@@ -563,8 +563,8 @@ async function tasks([key]) {
   const count = (x) => (x.kind === 'talk' ? '' : `<span class="count">${b.rows.reduce((a, r) => a + r.tasks[x.key].items.length, 0)}</span>`);
   const summary = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th>${
     t.kind === 'talk'
-      ? '<th class="num">Today</th><th class="num">On calls</th><th class="num">PTM today</th><th class="num">Last working day</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
-      : '<th class="num">At 11 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Flagged</th>'
+      ? '<th class="num">Today</th><th class="num">On calls</th><th class="num">PTM today</th><th class="num">Last day talk time</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
+      : '<th class="num">At 10 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Flagged</th>'
   }<th>Progress</th><th>Status</th><th>Idea / hint</th></tr></thead><tbody>${b.rows
     .map((r) => {
       const s = r.tasks[t.key];
@@ -686,7 +686,7 @@ async function schedule() {
   title('Schedule', 'Automatic emails, Monday to Saturday (India time)');
   const [h, m] = st.now.time.split(':').map(Number);
   const now = h * 60 + m;
-  const meta = { morning: ['🌅', "Today's tasks", 'Total tasks, overdue items and student-wise lists'], progress: ['⏱️', 'Progress update', 'Closed vs still open since 11 AM'], closure: ['🌙', 'Task closure', 'Achieved vs missed, carry-forward list'] };
+  const meta = { morning: ['🌅', "Today's tasks", 'Total tasks, overdue items and student-wise lists'], progress: ['⏱️', 'Progress update', 'Closed vs still open since 10 AM'], closure: ['🌙', 'Task closure', 'Achieved vs missed, carry-forward list'] };
   let nextMarked = false;
   const cards = ['morning', 'progress', 'closure']
     .map((k, i) => {

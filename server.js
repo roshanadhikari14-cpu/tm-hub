@@ -54,7 +54,7 @@ const DEFAULTS = {
   slots: { morning: '11:00', progress: '17:00', closure: '20:00' },
   sendIndividual: true,
   sendTeam: true,
-  last: { morning: null, progress: null, closure: null },
+  last: { morning: null, progress: null, closure: null, baseline: null },
   log: [],
 };
 function loadConfig() {
@@ -189,6 +189,20 @@ async function sendSlot(slot, { test = false, names = null, includeTeam = true, 
 // ---------- Scheduler ----------
 
 let running = false;
+// 10 AM: pull Lighthouse and fix the day's starting list. Everything later in the day
+// (11 AM, 5 PM, 8 PM) is counted against this.
+const BASELINE_AT = '10:00';
+async function takeBaseline() {
+  await refresh();
+  const A = loadLatest();
+  const today = istNow().date;
+  if (!A || A.date !== today) throw new Error('Lighthouse data is not from today.');
+  M.ensureBaseline(A, team(), true);
+  const c = loadConfig();
+  c.last.baseline = today;
+  saveConfig(c);
+}
+
 async function runSlot(slot, manual = false) {
   if (running) throw new Error('A run is already in progress.');
   running = true;
@@ -206,7 +220,8 @@ async function runSlot(slot, manual = false) {
       entry.warning = `Lighthouse refresh failed, used saved data: ${e.message}`;
     }
     const A = loadLatest();
-    if (slot === 'morning' && A && A.date === istNow().date) M.ensureBaseline(A, team(), !manual);
+    // The starting list is normally fixed at 10 AM. If that run was missed, fix it now.
+    if (slot === 'morning' && A && A.date === istNow().date) M.ensureBaseline(A, team(), !manual && loadConfig().last.baseline !== istNow().date);
     const cfg = loadConfig();
     const results = await sendSlot(slot, { includeIndividual: cfg.sendIndividual, includeTeam: cfg.sendTeam });
     entry.sent = results.filter((r) => r.ok).length;
@@ -232,6 +247,13 @@ if (!CLOUD) setInterval(() => {
   const now = istNow();
   if (!c.enabled || running || now.day === 'Sun') return;
   const t = mins(now.time);
+  if (c.last.baseline !== now.date && t >= mins(BASELINE_AT) && t < mins(BASELINE_AT) + 55) {
+    running = true;
+    takeBaseline()
+      .catch((e) => console.log(`[schedule] 10 AM refresh failed: ${e.message}`))
+      .finally(() => (running = false));
+    return;
+  }
   for (const s of SLOTS) {
     const at = mins(c.slots[s]);
     // Runs once a day, within 90 minutes of its time (a late start never sends stale mail).
@@ -521,9 +543,21 @@ app.get('/api/cron/:slot', async (req, res) => {
   // time window below still means a stray call can only start the mail that
   // was due at that time anyway, and only once a day.
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Not allowed.' });
-  if (!SLOTS.includes(slot)) return res.status(404).json({ error: 'Unknown slot.' });
   const c = loadConfig();
   const now = istNow();
+  if (slot === 'baseline') {
+    const t = mins(now.time) - mins(BASELINE_AT);
+    if (t < -5 || t > 55) return res.json({ skipped: 'Not the time for the 10 AM refresh.' });
+    if (now.day === 'Sun') return res.json({ skipped: 'Sunday.' });
+    if (c.last.baseline === now.date) return res.json({ skipped: 'Already done today.' });
+    try {
+      await takeBaseline();
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+  if (!SLOTS.includes(slot)) return res.status(404).json({ error: 'Unknown slot.' });
   const late = mins(now.time) - mins(DEFAULTS.slots[slot]);
   if (late < -5 || late > 180) return res.json({ skipped: 'Not the time for this mail.' });
   if (!c.enabled) return res.json({ skipped: 'Automatic sending is switched off.' });

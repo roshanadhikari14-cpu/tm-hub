@@ -6,6 +6,7 @@ name: Send TM mails
 on:
   schedule:
     # Times are UTC. IST = UTC + 5:30. Monday to Saturday.
+    - cron: '26,31,37,45,58 4 * * 1-6'   # 10:00 IST: refresh Lighthouse, fix the day's list
     - cron: '26,31,37,45,58 5 * * 1-6'   # 11:00 IST
     - cron: '26,31,37,45,58 11 * * 1-6'  # 17:00 IST
     - cron: '26,31,37,45,58 14 * * 1-6'  # 20:00 IST
@@ -18,7 +19,8 @@ jobs:
       - name: Call the hub
         run: |
           h=$(date -u +%-H)
-          if [ "$h" -ge 5 ] && [ "$h" -le 7 ]; then slot=morning
+          if [ "$h" -eq 4 ]; then slot=baseline
+          elif [ "$h" -ge 5 ] && [ "$h" -le 7 ]; then slot=morning
           elif [ "$h" -ge 11 ] && [ "$h" -le 13 ]; then slot=progress
           elif [ "$h" -ge 14 ] && [ "$h" -le 16 ]; then slot=closure
           else echo "No mail due now"; exit 0; fi
