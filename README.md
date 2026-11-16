@@ -48,3 +48,29 @@ Three libraries are bundled into `public/bits.js` (styles in `public/bits.css` a
 - GSAP + ScrollTrigger (npm `gsap`): scroll progress bar, reveal-on-scroll and banner parallax, in `scrollFx()` in `public/app.js`.
 
 To add another component, import it in `bits/entry.jsx`, add its file to `bits/magic.css` if it is from Magic UI, and rebuild.
+
+## Hosting on Vercel
+
+The same code runs on Vercel. There, every page of data is behind
+"Sign in with Google" (`@uprio.com` only), saved data lives in an Upstash
+Redis database, and the three mails are started by Vercel Cron
+(`vercel.json`: 11:00, 17:00 and 20:00 IST, Monday to Saturday).
+
+1. vercel.com → Add New → Project → import the `tm-hub` GitHub repo → Deploy.
+2. In the project: Storage → Create → **Upstash for Redis** (free plan) →
+   connect it to the project. This adds the database variables by itself.
+3. Settings → Environment Variables, add:
+   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: from the Google sign-in client.
+   - `OWNER_EMAIL`: the one address allowed to send mail and change settings.
+   - `CRON_SECRET`: any long random text (protects the scheduled jobs).
+   - Optional `ALLOWED_EMAILS`: comma-separated list, if not everyone at
+     uprio.com should be able to view the hub.
+4. In Google Cloud, add a second redirect URI to the sign-in client:
+   `https://<your-project>.vercel.app/auth/google/callback`
+5. Deployments → Redeploy, so the new variables are picked up.
+6. Open the site, sign in, then in Settings: paste the Lighthouse login and
+   press "Connect mailbox with Google".
+
+Notes: the Lighthouse login and the mailbox connection are stored in the
+database, not in the code. On Vercel's free plan a scheduled job can start up
+to an hour after its set time.

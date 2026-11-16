@@ -1,0 +1,35 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "team.json"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/auth/(.*)",
+      "destination": "/api"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/morning",
+      "schedule": "30 5 * * 1-6"
+    },
+    {
+      "path": "/api/cron/progress",
+      "schedule": "30 11 * * 1-6"
+    },
+    {
+      "path": "/api/cron/closure",
+      "schedule": "30 14 * * 1-6"
+    }
+  ]
+}

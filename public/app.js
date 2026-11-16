@@ -20,8 +20,17 @@ document.body.insertAdjacentHTML(
 async function api(path, opts) {
   const res = await fetch(path, opts && opts.body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) } : opts);
   const j = await res.json().catch(() => ({}));
+  if (res.status === 401 && j.login) showLogin(j);
   if (!res.ok) throw new Error(j.error || `Request failed (${res.status})`);
   return j;
+}
+// Shown instead of the hub when it is on the internet and nobody is signed in.
+function showLogin(j) {
+  if ($('#loginScreen')) return;
+  const d = document.createElement('div');
+  d.id = 'loginScreen';
+  d.innerHTML = `<div class="login-card"><span class="brand-mark"><svg viewBox="0 0 64 64"><path d="M14 42l12-14 10 8 14-18" /></svg></span><h2>TM Hub</h2><p>Sign in with your <b>@${esc(j.domain || 'uprio.com')}</b> Google account to continue.</p>${j.clientReady ? '<a class="btn btn-primary" href="/auth/login">Sign in with Google</a>' : '<p class="note">Google sign-in is not set up yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the Vercel project settings.</p>'}</div>`;
+  document.body.append(d);
 }
 function toast(msg, type = '') {
   const t = document.createElement('div');
@@ -715,11 +724,13 @@ async function settings() {
           <div><button class="btn btn-primary" id="saveLh">Save login</button></div></div></div>
       <div class="card rise" style="--i:1"><h3>Email (Gmail)</h3><div class="sub" style="margin-bottom:12px">${g.email ? `Signed in with Google · sending as <b>${esc(g.email)}</b>` : st.email ? `Sending as ${esc(st.sender)} with an App Password` : 'Not set up'}</div>
         <div class="form">
+          ${st.gated ? `<p class="note">You are signed in as <b>${esc(st.user || '')}</b> · <a href="/auth/logout">Sign out</a>${st.owner ? '' : '. Only the owner can change settings or send mail.'}</p>` : ''}
+          ${st.storage ? '' : '<div class="callout red">No database is connected, so settings and history will not be kept. Add Upstash Redis from the Vercel Storage tab.</div>'}
           ${g.email
             ? `<div class="callout green">✓ Mails go out from ${esc(g.email)} through Google sign-in.</div>
                <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-ghost" id="chkEm">Check connection</button><a class="btn btn-ghost" href="/auth/google">Switch account</a><button class="btn btn-ghost" id="gOut">Sign out</button></div>`
             : g.clientReady
-            ? `<div><a class="btn btn-primary" href="/auth/google">Sign in with Google</a></div>
+            ? `<div><a class="btn btn-primary" href="/auth/google">Connect mailbox with Google</a></div>
                <p class="note">Only <b>@${esc(g.domain)}</b> accounts are accepted. Google will ask for permission to send email on your behalf; nothing else is requested.</p>`
             : `<p class="note">One-time setup: create a Google sign-in client, then paste its two values here. Steps are in the README under “Sign in with Google”.</p>`}
           <details ${g.clientReady ? '' : 'open'}><summary style="cursor:pointer;font-weight:600;margin:6px 0">Google sign-in client</summary>
