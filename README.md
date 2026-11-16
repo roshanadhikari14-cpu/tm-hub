@@ -6,7 +6,7 @@ Live task board, TM profiles and the three daily emails for Roshan's team.
 
 | When (Mon–Sat, IST) | Mail |
 |---|---|
-| 11:00 | Today's task targets (per TM) + team board |
+| 11:00 | Today's tasks (per TM) + team board |
 | 17:00 | Progress update (closed vs open since 11 AM) + team board |
 | 20:00 | Task closure (achieved / missed, carry-forward) + team board |
 

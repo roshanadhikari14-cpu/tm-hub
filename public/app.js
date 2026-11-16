@@ -5,7 +5,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const view = $('#view');
 
 const S = { slot: null, data: null, status: null, tasks: [] };
-const SLOT_LABEL = { morning: '11 AM targets', progress: '5 PM progress', closure: '8 PM closure' };
+const SLOT_LABEL = { morning: '11 AM tasks', progress: '5 PM progress', closure: '8 PM closure' };
 const STATUS_LABEL = { clear: 'All clear', ok: 'On track', watch: 'Watch', critical: 'Needs attention' };
 
 document.body.insertAdjacentHTML(
@@ -251,7 +251,7 @@ function nextSend() {
   if (!st.config.enabled) return { label: 'Auto-send is off', value: '—' };
   const [h, m] = st.now.time.split(':').map(Number);
   const now = h * 60 + m;
-  const names = { morning: '11 AM targets', progress: '5 PM progress', closure: '8 PM closure' };
+  const names = { morning: '11 AM tasks', progress: '5 PM progress', closure: '8 PM closure' };
   for (const k of ['morning', 'progress', 'closure']) {
     const [sh, sm] = st.config.slots[k].split(':').map(Number);
     const at = sh * 60 + sm;
@@ -260,7 +260,7 @@ function nextSend() {
       return { label: `Next: ${names[k]}`, value: `in ${Math.floor(d / 60)}h ${String(d % 60).padStart(2, '0')}m` };
     }
   }
-  return { label: 'Next: 11 AM targets', value: st.now.day === 'Sat' ? 'Monday' : 'tomorrow' };
+  return { label: 'Next: 11 AM tasks', value: st.now.day === 'Sat' ? 'Monday' : 'tomorrow' };
 }
 function tmCard(r, i, top = false) {
   const t = r.tasks;
@@ -659,7 +659,7 @@ async function schedule() {
   title('Schedule', 'Automatic emails, Monday to Saturday (India time)');
   const [h, m] = st.now.time.split(':').map(Number);
   const now = h * 60 + m;
-  const meta = { morning: ['🌅', "Today's task targets", 'Pending tasks, targets, hints and student-wise lists'], progress: ['⏱️', 'Progress update', 'Closed vs still open since 11 AM'], closure: ['🌙', 'Task closure', 'Achieved vs missed, carry-forward list'] };
+  const meta = { morning: ['🌅', "Today's tasks", 'Total tasks, overdue items and student-wise lists'], progress: ['⏱️', 'Progress update', 'Closed vs still open since 11 AM'], closure: ['🌙', 'Task closure', 'Achieved vs missed, carry-forward list'] };
   let nextMarked = false;
   const cards = ['morning', 'progress', 'closure']
     .map((k, i) => {
