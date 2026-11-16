@@ -335,9 +335,11 @@ app.get('/api/tm/:name', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Unknown TM' });
   const A = loadLatest();
   const hist = M.loadHistory();
+  // Days saved before a name correction are under the old spelling.
+  const old = (team().find((m) => m.name === row.name) || {}).oldName;
   const history = Object.keys(hist)
     .sort()
-    .map((d) => ({ date: d, ...(hist[d][row.name] || {}) }))
+    .map((d) => ({ date: d, ...(hist[d][row.name] || hist[d][old] || {}) }))
     .filter((h) => h.score !== undefined);
   res.json({ tasks: M.TASKS, row, slot: b.slot, monthStart: A.monthStart || null, dataDate: A.date, students: (A.students && A.students[row.lighthouseName]) || [], history, team: b.rows.map((r) => ({ name: r.name, score: r.perf.score })) });
 });

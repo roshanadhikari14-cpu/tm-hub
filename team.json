@@ -2,6 +2,6 @@
   { "name": "Barnali Debnath", "lighthouseName": "Barnali Debnath", "email": "barnali.debnath@uprio.com", "photo": "barnali.jpg", "tmId": 359 },
   { "name": "Renuka Naik", "lighthouseName": "Renuka Naik", "email": "renuka.naik@uprio.com", "photo": "renuka.jpg", "tmId": 274 },
   { "name": "Nida Afreen", "lighthouseName": "Nida Afreen", "email": "nida.afreen@uprio.com", "photo": "nida.jpg", "tmId": 405 },
-  { "name": "Preety Gaur", "lighthouseName": "Preety Gour", "email": "preety.gour@uprio.com", "photo": "preety.jpg", "tmId": 1324 },
+  { "name": "Preety Gour", "oldName": "Preety Gaur", "lighthouseName": "Preety Gour", "email": "preety.gour@uprio.com", "photo": "preety.jpg", "tmId": 1324 },
   { "name": "Dhiraj Singh", "lighthouseName": "Dhiraj Kumar", "email": "dhiraj.kumar@uprio.com", "photo": "dhiraj.jpg", "tmId": 1470 }
 ]
