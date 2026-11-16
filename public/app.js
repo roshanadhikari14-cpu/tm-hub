@@ -142,12 +142,12 @@ const daysAgo = (iso) => (iso ? Math.floor((Date.now() - new Date(iso)) / 864000
 // How one task cell reads for the chosen report time.
 function cellText(t, s, slot) {
   if (slot === 'morning') {
-    if (t.kind === 'talk') return { main: `${s.yesterday}m`, sub: `target ${s.target}m` };
-    if (t.kind === 'booking') return { main: s.morning, sub: `book ${s.target}` };
+    if (t.kind === 'talk') return { main: `${s.yesterday}m`, sub: 'yesterday' };
+    if (t.kind === 'booking') return { main: s.morning, sub: s.flagged ? `${s.flagged} waiting 5+ days` : 'to book' };
     return { main: s.pending, sub: s.flagged ? `${s.flagged} flagged` : 'pending' };
   }
-  if (t.kind === 'talk') return { main: `${s.minutes}m`, sub: `of ${s.target}m` };
-  return { main: `${s.done}/${s.target}`, sub: t.kind === 'booking' ? 'booked' : `${s.pending} open` };
+  if (t.kind === 'talk') return { main: `${s.minutes}m`, sub: 'today' };
+  return { main: `${s.done}/${s.morning}`, sub: t.kind === 'booking' ? 'booked' : `${s.pending} open` };
 }
 
 // ---------- data ----------
@@ -274,7 +274,7 @@ function tmCard(r, i, top = false) {
       <div class="grade">${esc(r.perf.grade)} · ${r.perf.students} students</div>
       <div class="mini-stats">
         <div><b data-count="${open}">0</b><span>open items</span></div>
-        <div><b>${t.ic2.done}/${t.ic2.target}</b><span>IC2 booked</span></div>
+        <div><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
         <div><b>${S.slot === 'morning' ? t.talk.yesterday : t.talk.minutes}m</b><span>talk ${S.slot === 'morning' ? 'yest.' : 'today'}</span></div>
       </div>
       <div class="flags">${r.concerns.length ? r.concerns.slice(0, 3).map((c) => pill('critical', c)).join('') + (r.concerns.length > 3 ? `<span class="tag">+${r.concerns.length - 3}</span>` : '') : pill('clear', 'Nothing critical')}</div>
@@ -313,17 +313,17 @@ async function dashboard() {
       let val, meta, p;
       if (t.kind === 'talk') {
         const v = b.slot === 'morning' ? sum('yesterday') : sum('minutes');
-        val = `<span data-count="${v}">0</span><small> / ${sum('target')} min</small>`;
+        val = `<span data-count="${v}">0</span><small> min</small>`;
         meta = b.slot === 'morning' ? 'team talk time yesterday' : 'team talk time today';
         p = (100 * v) / (sum('target') || 1);
       } else if (t.kind === 'booking') {
-        val = `<span data-count="${sum('done')}">0</span><small> / ${sum('target')} target</small>`;
-        meta = `${sum('morning')} to book today`;
-        p = (100 * sum('done')) / (sum('target') || 1);
+        val = `<span data-count="${sum('done')}">0</span><small> of ${sum('morning')} booked</small>`;
+        meta = `${Math.max(sum('morning') - sum('done'), 0)} still to book`;
+        p = (100 * sum('done')) / (sum('morning') || 1);
       } else {
         val = `<span data-count="${sum('pending')}">0</span><small> pending</small>`;
         meta = b.slot === 'morning' ? `${sum('flagged')} overdue / ageing` : `${sum('done')} closed since 11 AM`;
-        p = sum('target') ? (100 * sum('done')) / sum('target') : 100;
+        p = sum('morning') ? (100 * sum('done')) / sum('morning') : 100;
       }
       return `<span class="rise kpi-wrap" style="--i:${i}" data-go="#/tasks/${t.key}" data-bit="SpotlightCard" data-props="${esc(JSON.stringify({ theme: 'light', spotlightColor: crit ? '#e0563f' : '#12a39a', intensity: 0.22, spotlightSize: 260, className: `kpi${crit ? ' crit' : ''}` }))}">
         <div class="top"><div class="ico">${t.icon}</div>${crit ? pill('critical', `${crit} TM${crit > 1 ? 's' : ''}`) : pill('ok', 'OK')}</div>
@@ -344,7 +344,7 @@ async function dashboard() {
     <div class="section-title"><h2>Team tasks</h2><span>${esc(SLOT_LABEL[b.slot])}. Click a tile for the full list.</span></div>
     <div class="grid g-kpi">${kpis}</div>
     <div class="grid g-2" style="margin-top:18px">
-      <div class="card rise" style="--i:9"><h3>Task board</h3><div class="sub" style="margin-bottom:12px">${b.slot === 'morning' ? 'Pending per TM. Red needs attention today.' : 'Closed / target since 11 AM.'} Click a cell to open that TM.</div>${heatmap(b)}</div>
+      <div class="card rise" style="--i:9"><h3>Task board</h3><div class="sub" style="margin-bottom:12px">${b.slot === 'morning' ? 'Pending per TM. Red needs attention today.' : 'Done since 11 AM, of the morning total.'} Click a cell to open that TM.</div>${heatmap(b)}</div>
       <div class="card rise" style="--i:10"><h3>Needs attention</h3><div class="sub" style="margin-bottom:12px">Critical items by TM</div>
         <div class="attn">${
           critTMs.length
@@ -551,16 +551,16 @@ async function tasks([key]) {
   const count = (x) => (x.kind === 'talk' ? '' : `<span class="count">${b.rows.reduce((a, r) => a + r.tasks[x.key].items.length, 0)}</span>`);
   const summary = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th>${
     t.kind === 'talk'
-      ? '<th class="num">Today</th><th class="num">Last working day</th><th class="num">Target</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
-      : '<th class="num">At 11 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Target</th><th class="num">Flagged</th>'
+      ? '<th class="num">Today</th><th class="num">Last working day</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
+      : '<th class="num">At 11 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Flagged</th>'
   }<th>Progress</th><th>Status</th><th>Idea / hint</th></tr></thead><tbody>${b.rows
     .map((r) => {
       const s = r.tasks[t.key];
-      const p = s.target ? Math.round((100 * s.done) / s.target) : 100;
+      const p = t.kind === 'talk' ? (s.target ? Math.round((100 * s.done) / s.target) : 100) : s.morning ? Math.round((100 * s.done) / s.morning) : 100;
       const nums =
         t.kind === 'talk'
-          ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.yesterday}m</td><td class="num">${s.target}m</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
-          : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}</td><td class="num">${s.target}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
+          ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.yesterday}m</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
+          : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
       return `<tr class="${s.status === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
         <td style="min-width:120px"><div class="prog ${s.status === 'critical' ? 'red' : s.status === 'watch' ? 'amber' : ''}" style="margin:0"><i data-w="${p}"></i></div></td><td>${pill(s.status)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc(s.hints[0] || '')}</td></tr>`;
     })
@@ -680,7 +680,7 @@ async function schedule() {
       <div class="form" style="margin-top:12px">
         <label class="toggle"><input type="checkbox" id="ind" ${c.sendIndividual ? 'checked' : ''}><span class="sw"></span>Personal mail to each TM (tasks, hints, student-wise tables)</label>
         <label class="toggle"><input type="checkbox" id="tm" ${c.sendTeam ? 'checked' : ''}><span class="sw"></span>One team board mail, task-wise table, all TMs in CC</label>
-        <label>Daily talk-time target per TM (minutes)<input type="number" id="talk" min="10" max="600" value="${c.talkTargetMin}" style="max-width:160px"></label>
+        <label>Talk-time benchmark per TM (minutes, used only for colours and score)<input type="number" id="talk" min="10" max="600" value="${c.talkTargetMin}" style="max-width:160px"></label>
         <div><button class="btn btn-primary" id="saveSch">Save schedule</button></div>
       </div></div>
     <div class="section-title"><h2>Recent runs</h2><span>Newest first</span></div>
