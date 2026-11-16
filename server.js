@@ -197,7 +197,12 @@ async function runSlot(slot, manual = false) {
     try {
       await refresh();
     } catch (e) {
-      // Fall back to the last saved data, but say so in the log.
+      const late = mins(istNow().time) - mins(DEFAULTS.slots[slot]);
+      if (!manual && late < 25) {
+        entry.retry = true;
+        throw new Error(`Lighthouse could not be refreshed, will try again shortly: ${e.message}`);
+      }
+      // Still failing after 25 minutes: send with the last saved data, and say so in the log.
       entry.warning = `Lighthouse refresh failed, used saved data: ${e.message}`;
     }
     const A = loadLatest();
@@ -215,7 +220,7 @@ async function runSlot(slot, manual = false) {
   } finally {
     const c = loadConfig();
     if (!manual && entry.sent > 0) c.last[slot] = istNow().date;
-    c.log = [entry, ...(c.log || [])].slice(0, 60);
+    if (!entry.retry) c.log = [entry, ...(c.log || [])].slice(0, 60);
     saveConfig(c);
     running = false;
   }
@@ -408,6 +413,11 @@ app.post('/api/send', async (req, res) => {
   const b = req.body || {};
   const slot = SLOTS.includes(b.slot) ? b.slot : 'morning';
   if (running) return res.status(409).json({ error: 'A scheduled run is in progress. Try again in a minute.' });
+  try {
+    await refresh();
+  } catch (e) {
+    return res.status(502).json({ error: `Lighthouse could not be refreshed, so no mail was sent. ${e.message}` });
+  }
   try {
     const results = await sendSlot(slot, {
       test: Boolean(b.test),

@@ -637,8 +637,11 @@ async function reports([who]) {
   };
   const send = async (btn, body, okMsg) => {
     btn.disabled = true;
+    const label = btn.innerHTML;
+    btn.textContent = 'Refreshing Lighthouse, then sending…';
     try {
       const j = await api('/api/send', { body: { slot: S.slot, ...body } });
+      S.data = null;
       const bad = j.results.filter((x) => !x.ok);
       if (bad.length) toast(`${bad.length} failed: ${bad[0].error}`, 'err');
       else toast(`${okMsg} (${j.results.length} mail${j.results.length > 1 ? 's' : ''})`, 'ok');
@@ -646,6 +649,7 @@ async function reports([who]) {
       toast(err.message, 'err');
     } finally {
       btn.disabled = false;
+      btn.innerHTML = label;
     }
   };
   $('#sendTest').onclick = (e) => send(e.currentTarget, { test: true }, 'Tests sent to you only');
@@ -685,7 +689,7 @@ async function schedule() {
     .join('');
   view.innerHTML = `
     ${st.email ? '' : '<div class="callout red rise" style="margin-bottom:16px">Email is not set up, so scheduled mails will fail. Fix it in <a href="#/settings"><b>Settings</b></a>.</div>'}
-    <div class="card rise"><div class="toolbar"><div><h3>Daily automatic emails</h3><div class="sub">The hub must stay running on this computer for mails to go out. Sundays are skipped.</div></div><span style="flex:1"></span>
+    <div class="card rise"><div class="toolbar"><div><h3>Daily automatic emails</h3><div class="sub">Each mail refreshes Lighthouse first, then sends. Sundays are skipped.</div></div><span style="flex:1"></span>
       <label class="toggle"><input type="checkbox" id="en" ${c.enabled ? 'checked' : ''}><span class="sw"></span>Auto-send</label></div></div>
     <div class="timeline">${cards}</div>
     <div class="card rise" style="--i:4;margin-top:18px"><h3>What goes out each time</h3>
