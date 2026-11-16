@@ -810,7 +810,7 @@ async function settings() {
 }
 
 // ---------- start ----------
-view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(8) + '</div>';
+view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
 route();
 setInterval(async () => {
   // Quietly keep the sidebar status current.
