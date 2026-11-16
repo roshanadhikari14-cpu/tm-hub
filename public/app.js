@@ -744,6 +744,9 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
+    <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. A TM’s own recorded greeting plays first if one has been added.</div></div>
+      <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
+      <p class="note" style="margin-top:10px">This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
     <div class="grid g-2" style="grid-template-columns:1fr 1fr">
       <div class="card rise"><h3>Lighthouse</h3><div class="sub" style="margin-bottom:12px">${st.lighthouse ? (st.refreshError ? `<span style="color:var(--red)">${esc(st.refreshError)}</span>` : `Connected · last data ${esc(fmtTime(st.dataAt))}`) : 'Not connected'}</div>
         <div class="form"><label>Authorization value<textarea id="lhAuth" rows="3" placeholder="Bearer eyJ…"></textarea></label>
@@ -846,3 +849,79 @@ setInterval(async () => {
     paintChrome();
   } catch {}
 }, 60000);
+
+// ---------- Speak on hover ----------
+// Reads a TM's name and today's numbers aloud when the pointer rests on them. If the TM has
+// recorded a greeting (public/voices/<first name>.mp3), that plays first.
+const voiceOn = () => {
+  try {
+    return localStorage.getItem('tmhub.voice') !== 'off';
+  } catch {
+    return true;
+  }
+};
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'voiceOn') return;
+  try {
+    localStorage.setItem('tmhub.voice', e.target.checked ? 'on' : 'off');
+  } catch {}
+  if (!e.target.checked) hush();
+  toast(e.target.checked ? 'Speak on hover is on' : 'Speak on hover is off', 'ok');
+});
+const voice = { timer: null, last: '', at: 0, clip: null, missing: new Set() };
+function hush() {
+  clearTimeout(voice.timer);
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  if (voice.clip) voice.clip.pause();
+  voice.clip = null;
+}
+function tmLine(r) {
+  const T = r.tasks;
+  const done = S.tasks.filter((t) => t.kind !== 'talk').reduce((n, t) => n + ((t.kind === 'list' ? T[t.key].closed : T[t.key].done) || 0), 0);
+  const total = S.tasks.filter((t) => t.kind !== 'talk').reduce((n, t) => n + (T[t.key].morning || 0), 0);
+  const ptm = T.talk.ptm ? `, including ${T.talk.ptm} P T M` : '';
+  return `${r.first}. ${done} of ${total} tasks done. Talk time ${T.talk.minutes || 0} minutes${ptm}. ${T.nc15 ? `${T.nc15.pending} N C 15 students.` : ''}`;
+}
+function sayText(text) {
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  const v = speechSynthesis.getVoices().find((x) => /en[-_]IN/i.test(x.lang)) || speechSynthesis.getVoices().find((x) => /^en/i.test(x.lang));
+  if (v) u.voice = v;
+  u.rate = 1.02;
+  speechSynthesis.speak(u);
+}
+function speakTm(name) {
+  const r = S.data && S.data.rows.find((x) => x.name === name);
+  if (!r) return;
+  hush();
+  const text = tmLine(r);
+  const file = `voices/${r.first.toLowerCase()}.mp3`;
+  if (voice.missing.has(file)) return sayText(text);
+  const clip = new Audio(file);
+  voice.clip = clip;
+  clip.onended = () => voice.clip === clip && sayText(text);
+  clip.onerror = () => {
+    voice.missing.add(file);
+    if (voice.clip === clip) sayText(text);
+  };
+  clip.play().catch(() => {});
+}
+document.addEventListener('mouseover', (e) => {
+  if (!voiceOn() || !e.target.closest) return;
+  const el = e.target.closest('a[href^="#/tm/"], [data-go^="#/tm/"]');
+  if (!el) return;
+  const name = decodeURIComponent((el.getAttribute('href') || el.dataset.go).split('/')[2] || '');
+  if (!name || (name === voice.last && Date.now() - voice.at < 6000)) return;
+  clearTimeout(voice.timer);
+  // A short pause, so passing over a card on the way elsewhere stays silent.
+  voice.timer = setTimeout(() => {
+    voice.last = name;
+    voice.at = Date.now();
+    speakTm(name);
+  }, 450);
+});
+document.addEventListener('mouseout', (e) => {
+  const el = e.target.closest && e.target.closest('a[href^="#/tm/"], [data-go^="#/tm/"]');
+  if (el && !el.contains(e.relatedTarget)) clearTimeout(voice.timer);
+});
+window.addEventListener('hashchange', hush);
