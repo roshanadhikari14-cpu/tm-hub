@@ -496,7 +496,7 @@ async function tm([name, focus]) {
     <div class="profile-hero rise">${magic('BorderBeam', { size: 180, duration: 10, colorFrom: '#b3b6fa', colorTo: '#f2b84b', borderWidth: 2 })}
       <div class="blur" style="background-image:url('${photo(r)}')"></div>
       ${bit('TiltedCard', { imageSrc: photo(r), altText: r.name, containerHeight: '156px', containerWidth: '156px', imageHeight: '148px', imageWidth: '148px', rotateAmplitude: 14, scaleOnHover: 1.08, showTooltip: false, flipOnClick: false, gyroscope: false, radius: 30, glare: 0.5 }, '', 'display:block;width:156px;height:156px')}
-      <div><h2>${bit('BlurText', { text: r.name, delay: 120, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2><div class="meta">Tutor Manager · ${esc(r.email)}</div>
+      <div><h2>${bit('BlurText', { text: r.name, delay: 120, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2><div class="meta">Tutor Manager · ${esc(r.email)}</div><div class="voice-box" data-voice="${esc(r.name)}"></div>
         <div class="chips"><span class="chip">🏅 Rank ${rank} of ${j.team.length}</span><span class="chip">👩‍🎓 ${P.students} students</span><span class="chip">🏫 ${P.batches} batches</span><span class="chip">${bit('ShinyText', { text: P.grade, color: '#dfe0fa', shineColor: '#ffffff', speed: 2.5 })}</span>${r.concerns.length ? `<span class="chip" style="background:rgba(255,120,100,.3)">⚠ ${r.concerns.length} critical</span>` : ''}</div></div>
       ${ring(P.score, 'lg')}
     </div>
@@ -744,9 +744,9 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
-    <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. A TM’s own recorded greeting plays first if one has been added.</div></div>
+    <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
-      <p class="note" style="margin-top:10px">This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
+      <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
     <div class="grid g-2" style="grid-template-columns:1fr 1fr">
       <div class="card rise"><h3>Lighthouse</h3><div class="sub" style="margin-bottom:12px">${st.lighthouse ? (st.refreshError ? `<span style="color:var(--red)">${esc(st.refreshError)}</span>` : `Connected · last data ${esc(fmtTime(st.dataAt))}`) : 'Not connected'}</div>
         <div class="form"><label>Authorization value<textarea id="lhAuth" rows="3" placeholder="Bearer eyJ…"></textarea></label>
@@ -868,7 +868,7 @@ document.addEventListener('change', (e) => {
   if (!e.target.checked) hush();
   toast(e.target.checked ? 'Speak on hover is on' : 'Speak on hover is off', 'ok');
 });
-const voice = { timer: null, last: '', at: 0, clip: null, missing: new Set() };
+const voice = { timer: null, last: '', at: 0, clip: null };
 function hush() {
   clearTimeout(voice.timer);
   if (window.speechSynthesis) speechSynthesis.cancel();
@@ -890,22 +890,117 @@ function sayText(text) {
   u.rate = 1.02;
   speechSynthesis.speak(u);
 }
-function speakTm(name) {
+// Which TMs have a greeting (asked once, and again after a recording changes).
+let voiceList = null;
+async function voices(force) {
+  if (!voiceList || force) voiceList = api('/api/voice').then((j) => j.voices).catch(() => ({}));
+  return voiceList;
+}
+const voiceUrl = (name, v) => `/api/voice/${encodeURIComponent(name)}?v=${v}`;
+async function speakTm(name) {
   const r = S.data && S.data.rows.find((x) => x.name === name);
   if (!r) return;
   hush();
   const text = tmLine(r);
-  const file = `voices/${r.first.toLowerCase()}.mp3`;
-  if (voice.missing.has(file)) return sayText(text);
-  const clip = new Audio(file);
+  const v = (await voices())[name];
+  if (!v || !v.has) return sayText(text);
+  const clip = new Audio(voiceUrl(name, v.v));
   voice.clip = clip;
   clip.onended = () => voice.clip === clip && sayText(text);
-  clip.onerror = () => {
-    voice.missing.add(file);
-    if (voice.clip === clip) sayText(text);
-  };
+  clip.onerror = () => voice.clip === clip && sayText(text);
   clip.play().catch(() => {});
 }
+
+// Greeting controls on a TM's profile, and the list in Settings.
+async function paintVoice() {
+  const box = $('.voice-box:not([data-done])');
+  const list = $('#voiceList:not([data-done])');
+  if (!box && !list) return;
+  if (box) box.dataset.done = 1;
+  if (list) list.dataset.done = 1;
+  const all = await voices(true);
+  if (list)
+    list.innerHTML = Object.entries(all)
+      .map(([n, v]) => `<span class="chip ${v.has ? 'ok' : ''}">${v.has ? '🎙' : '○'} ${esc(n.split(' ')[0])}${v.has ? ` <button class="mini" data-vplay="${esc(n)}">Play</button>${v.canRemove ? `<button class="mini" data-vdel="${esc(n)}">Remove</button>` : ''}` : ' · not recorded'}</span>`)
+      .join('');
+  if (box) {
+    const n = box.dataset.voice;
+    const v = all[n] || {};
+    box.innerHTML =
+      (v.has ? `<button class="mini" data-vplay="${esc(n)}">▶ Play greeting</button>` : '') +
+      (v.canRecord ? `<button class="mini" data-vrec="${esc(n)}">🎙 ${v.has ? 'Record again' : 'Record my greeting'}</button>` : '') +
+      (v.has && v.canRemove ? `<button class="mini" data-vdel="${esc(n)}">Remove</button>` : '') +
+      (!v.has && !v.canRecord ? '<span class="voice-none">No greeting recorded yet</span>' : '');
+  }
+}
+new MutationObserver(() => paintVoice()).observe(view, { childList: true, subtree: true });
+const repaintVoice = () => {
+  $$('.voice-box, #voiceList').forEach((el) => el.removeAttribute('data-done'));
+  paintVoice();
+};
+
+// Records up to five seconds from the microphone and saves it as this TM's greeting.
+async function recordGreeting(name, btn) {
+  if (!navigator.mediaDevices || !window.MediaRecorder) return toast('This browser cannot record sound. Try Chrome.', 'err');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    return toast('Microphone access was not allowed.', 'err');
+  }
+  const type = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+  const rec = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 48000 } : undefined);
+  const parts = [];
+  rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
+  const stopped = new Promise((r) => (rec.onstop = r));
+  rec.start();
+  let left = 5;
+  btn.dataset.recording = 1;
+  btn.textContent = `■ Stop (${left}s)`;
+  const tick = setInterval(() => {
+    left--;
+    if (left <= 0) rec.state === 'recording' && rec.stop();
+    else btn.textContent = `■ Stop (${left}s)`;
+  }, 1000);
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    rec.state === 'recording' && rec.stop();
+  };
+  await stopped;
+  clearInterval(tick);
+  stream.getTracks().forEach((t) => t.stop());
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+  try {
+    const blob = new Blob(parts, { type: rec.mimeType || type });
+    const data = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(String(fr.result).split(',')[1]);
+      fr.readAsDataURL(blob);
+    });
+    await api(`/api/voice/${encodeURIComponent(name)}`, { body: { type: blob.type, data } });
+    toast('Greeting saved', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+  repaintVoice();
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-vplay], [data-vrec], [data-vdel]');
+  if (!b || b.dataset.recording) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (b.dataset.vplay) {
+    hush();
+    const v = (await voices())[b.dataset.vplay];
+    if (v && v.has) (voice.clip = new Audio(voiceUrl(b.dataset.vplay, v.v))).play().catch(() => toast('Could not play the greeting.', 'err'));
+  } else if (b.dataset.vrec) {
+    recordGreeting(b.dataset.vrec, b);
+  } else if (await confirmBox('Remove this greeting?', `${esc(b.dataset.vdel)}’s recorded greeting will be deleted.`, 'Remove')) {
+    await fetch(`/api/voice/${encodeURIComponent(b.dataset.vdel)}`, { method: 'DELETE' }).catch(() => {});
+    repaintVoice();
+  }
+});
 document.addEventListener('mouseover', (e) => {
   if (!voiceOn() || !e.target.closest) return;
   const el = e.target.closest('a[href^="#/tm/"], [data-go^="#/tm/"]');

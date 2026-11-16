@@ -424,3 +424,13 @@ select.sel { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12
 a.lh { color: inherit; text-decoration: none; border-bottom: 1px dashed rgba(51, 55, 158, 0.45); transition: color 0.15s, border-color 0.15s; }
 a.lh:hover { color: var(--teal, #33379e); border-bottom-color: currentColor; }
 a.lh .ext { font-size: 0.8em; margin-left: 3px; opacity: 0.55; }
+
+/* Greetings */
+.voice-box { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.voice-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.voice-list .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--mint); font-size: 12.5px; color: var(--ink-2); }
+.voice-list .chip.ok { color: var(--ink); font-weight: 600; }
+.mini { border: 1px solid rgba(51, 55, 158, 0.25); background: #fff; color: var(--teal); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.mini:hover { background: var(--mint); transform: translateY(-1px); }
+.mini[data-recording] { background: var(--red-bg); color: var(--red); border-color: transparent; }
+.voice-none { font-size: 12.5px; opacity: 0.75; }
