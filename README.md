@@ -62,7 +62,8 @@ Redis database, and the three mails are started by Vercel Cron
 3. Settings → Environment Variables, add:
    - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: from the Google sign-in client.
    - `OWNER_EMAIL`: the one address allowed to send mail and change settings.
-   - `CRON_SECRET`: any long random text (protects the scheduled jobs).
+   - Optional `CRON_SECRET`: any long random text. Without it the scheduled
+     jobs are still limited to their own time of day, once a day.
    - Optional `ALLOWED_EMAILS`: comma-separated list, if not everyone at
      uprio.com should be able to view the hub.
 4. In Google Cloud, add a second redirect URI to the sign-in client:

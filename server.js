@@ -503,10 +503,15 @@ app.get('/auth/google/callback', async (req, res) => {
 // vercel.json calls these Monday to Saturday at 11:00, 17:00 and 20:00 IST.
 app.get('/api/cron/:slot', async (req, res) => {
   const slot = req.params.slot;
-  if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Not allowed.' });
+  // With CRON_SECRET set, only Vercel's own scheduler gets in. Without it the
+  // time window below still means a stray call can only start the mail that
+  // was due at that time anyway, and only once a day.
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Not allowed.' });
   if (!SLOTS.includes(slot)) return res.status(404).json({ error: 'Unknown slot.' });
   const c = loadConfig();
   const now = istNow();
+  const late = mins(now.time) - mins(DEFAULTS.slots[slot]);
+  if (late < -5 || late > 180) return res.json({ skipped: 'Not the time for this mail.' });
   if (!c.enabled) return res.json({ skipped: 'Automatic sending is switched off.' });
   if (now.day === 'Sun') return res.json({ skipped: 'Sunday.' });
   if (c.last[slot] === now.date) return res.json({ skipped: 'Already sent today.' });
