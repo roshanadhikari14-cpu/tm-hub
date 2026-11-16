@@ -563,7 +563,7 @@ async function tasks([key]) {
   const count = (x) => (x.kind === 'talk' ? '' : `<span class="count">${b.rows.reduce((a, r) => a + r.tasks[x.key].items.length, 0)}</span>`);
   const summary = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th>${
     t.kind === 'talk'
-      ? '<th class="num">Today</th><th class="num">Last working day</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
+      ? '<th class="num">Today</th><th class="num">On calls</th><th class="num">PTM today</th><th class="num">Last working day</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
       : '<th class="num">At 11 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Flagged</th>'
   }<th>Progress</th><th>Status</th><th>Idea / hint</th></tr></thead><tbody>${b.rows
     .map((r) => {
@@ -571,7 +571,7 @@ async function tasks([key]) {
       const p = t.kind === 'talk' ? (s.target ? Math.round((100 * s.done) / s.target) : 100) : s.morning ? Math.round((100 * s.done) / s.morning) : 100;
       const nums =
         t.kind === 'talk'
-          ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.yesterday}m</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
+          ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.callMinutes ?? 0}m</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${s.ptmMinutes ?? 0}m</small>` : '0'}</td><td class="num">${s.yesterday}m${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${s.yesterdayPtmMinutes}m</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
           : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
       return `<tr class="${s.status === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
         <td style="min-width:120px"><div class="prog ${s.status === 'critical' ? 'red' : s.status === 'watch' ? 'amber' : ''}" style="margin:0"><i data-w="${p}"></i></div></td><td>${pill(s.status)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc(s.hints[0] || '')}</td></tr>`;
