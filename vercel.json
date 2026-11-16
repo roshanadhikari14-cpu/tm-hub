@@ -21,11 +21,59 @@
   "crons": [
     {
       "path": "/api/cron/morning",
+      "schedule": "35 4 * * 1-6"
+    },
+    {
+      "path": "/api/cron/morning",
+      "schedule": "50 4 * * 1-6"
+    },
+    {
+      "path": "/api/cron/morning",
+      "schedule": "5 5 * * 1-6"
+    },
+    {
+      "path": "/api/cron/morning",
+      "schedule": "20 5 * * 1-6"
+    },
+    {
+      "path": "/api/cron/morning",
       "schedule": "30 5 * * 1-6"
     },
     {
       "path": "/api/cron/progress",
+      "schedule": "35 10 * * 1-6"
+    },
+    {
+      "path": "/api/cron/progress",
+      "schedule": "50 10 * * 1-6"
+    },
+    {
+      "path": "/api/cron/progress",
+      "schedule": "5 11 * * 1-6"
+    },
+    {
+      "path": "/api/cron/progress",
+      "schedule": "20 11 * * 1-6"
+    },
+    {
+      "path": "/api/cron/progress",
       "schedule": "30 11 * * 1-6"
+    },
+    {
+      "path": "/api/cron/closure",
+      "schedule": "35 13 * * 1-6"
+    },
+    {
+      "path": "/api/cron/closure",
+      "schedule": "50 13 * * 1-6"
+    },
+    {
+      "path": "/api/cron/closure",
+      "schedule": "5 14 * * 1-6"
+    },
+    {
+      "path": "/api/cron/closure",
+      "schedule": "20 14 * * 1-6"
     },
     {
       "path": "/api/cron/closure",
