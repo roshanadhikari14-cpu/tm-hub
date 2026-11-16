@@ -354,14 +354,14 @@ app.get('/api/students.csv', (req, res) => {
   };
   const day = (d) => (d ? istDate(new Date(d)) : '');
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : '');
-  const head = ['TM', 'Student ID', 'Student', 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next exam', 'Next exam date'];
+  const head = ['TM', 'Student ID', 'Student', 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
   const lines = [head.map(q).join(',')];
   for (const m of team()) {
     if (req.query.tm && req.query.tm !== m.name) continue;
     for (const s of (A.students && A.students[M.lhName(m)]) || []) {
       const a = s.att || {};
       lines.push(
-        [m.name, s.id, s.name, s.grade, s.school, s.batch, s.oneOnOne ? 'Yes' : 'No', s.lapsed ? 'Yes' : 'No', day(s.joinedAt), a.regHeld ?? '', a.regAttended ?? '', a.regHeld ? pct(a.regAttended, a.regHeld) : '', a.allHeld ?? '', a.allAttended ?? '', a.streak ?? '', day(a.lastAttended), a.onHoliday ? 'Yes' : 'No', s.greenPct ?? '', s.improvementPct ?? '', s.liftLoad ?? '', day(s.lastContact), s.contacts30 ?? '', (s.nextExam && s.nextExam.name) || '', day(s.nextExam && s.nextExam.date)]
+        [m.name, s.id, s.name, s.grade, s.school, s.batch, s.oneOnOne ? 'Yes' : 'No', s.lapsed ? 'Yes' : 'No', day(s.joinedAt), a.regHeld ?? '', a.regAttended ?? '', a.regHeld ? pct(a.regAttended, a.regHeld) : '', a.allHeld ?? '', a.allAttended ?? '', a.streak ?? '', day(a.lastAttended), a.onHoliday ? 'Yes' : 'No', s.greenPct ?? '', s.improvementPct ?? '', s.liftLoad ?? '', day(s.lastContact), s.contacts30 ?? '', day(s.renewal)]
           .map(q)
           .join(',')
       );

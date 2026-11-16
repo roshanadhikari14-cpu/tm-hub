@@ -11,8 +11,8 @@ const STATUS_LABEL = { clear: 'All clear', ok: 'On track', watch: 'Watch', criti
 document.body.insertAdjacentHTML(
   'beforeend',
   `<svg width="0" height="0" style="position:absolute"><defs>
-    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fb5ac"/><stop offset="1" stop-color="#0d5c63"/></linearGradient>
-    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12808a" stop-opacity=".28"/><stop offset="1" stop-color="#12808a" stop-opacity="0"/></linearGradient>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c81e8"/><stop offset="1" stop-color="#33379e"/></linearGradient>
+    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4fc4" stop-opacity=".28"/><stop offset="1" stop-color="#4a4fc4" stop-opacity="0"/></linearGradient>
   </defs></svg>`
 );
 
@@ -266,7 +266,7 @@ function tmCard(r, i, top = false) {
   const t = r.tasks;
   const open = S.tasks.filter((x) => x.kind === 'list').reduce((a, x) => a + t[x.key].pending, 0);
   return `<a class="card tm-card rise ${gradeClass(r.perf.score)}" style="--i:${i}" href="#/tm/${encodeURIComponent(r.name)}">
-    <div class="cover"></div>${top ? magic('ShineBorder', { borderWidth: 2, duration: 10, shineColor: ['#0d5c63', '#7ee0d4', '#f2b84b'] }) : ''}
+    <div class="cover"></div>${top ? magic('ShineBorder', { borderWidth: 2, duration: 10, shineColor: ['#33379e', '#b3b6fa', '#f2b84b'] }) : ''}
     <img class="face" src="${photo(r)}" alt="${esc(r.name)}">
     <div class="ring-wrap">${ring(r.perf.score)}</div>
     <div class="body">
@@ -325,7 +325,7 @@ async function dashboard() {
         meta = b.slot === 'morning' ? `${sum('flagged')} overdue / ageing` : `${sum('done')} closed since 11 AM`;
         p = sum('morning') ? (100 * sum('done')) / sum('morning') : 100;
       }
-      return `<span class="rise kpi-wrap" style="--i:${i}" data-go="#/tasks/${t.key}" data-bit="SpotlightCard" data-props="${esc(JSON.stringify({ theme: 'light', spotlightColor: crit ? '#e0563f' : '#12a39a', intensity: 0.22, spotlightSize: 260, className: `kpi${crit ? ' crit' : ''}` }))}">
+      return `<span class="rise kpi-wrap" style="--i:${i}" data-go="#/tasks/${t.key}" data-bit="SpotlightCard" data-props="${esc(JSON.stringify({ theme: 'light', spotlightColor: crit ? '#e0563f' : '#5b60d6', intensity: 0.22, spotlightSize: 260, className: `kpi${crit ? ' crit' : ''}` }))}">
         <div class="top"><div class="ico">${t.icon}</div>${crit ? pill('critical', `${crit} TM${crit > 1 ? 's' : ''}`) : pill('ok', 'OK')}</div>
         <div class="val">${val}</div><div class="lbl">${esc(t.label)}</div><div class="meta">${esc(meta)}</div>
         <div class="prog ${crit ? 'red' : ''}"><i data-w="${p}"></i></div></span>`;
@@ -333,12 +333,12 @@ async function dashboard() {
     .join('');
   view.innerHTML = `
     <div class="hero rise">
-      ${bit('Aurora', { colorStops: ['#3fb5ac', '#7ee0d4', '#12808a'], amplitude: 1.1, blend: 0.6, speed: 0.6, opacity: 0.55, mouseInteraction: true }, '', 'position:absolute;inset:0;display:block;pointer-events:none')}
-      ${magic('BorderBeam', { size: 160, duration: 9, colorFrom: '#7ee0d4', colorTo: '#ffffff', borderWidth: 2 })}
+      ${bit('Aurora', { colorStops: ['#7c81e8', '#b3b6fa', '#4a4fc4'], amplitude: 1.1, blend: 0.6, speed: 0.6, opacity: 0.55, mouseInteraction: true }, '', 'position:absolute;inset:0;display:block;pointer-events:none')}
+      ${magic('BorderBeam', { size: 160, duration: 9, colorFrom: '#b3b6fa', colorTo: '#ffffff', borderWidth: 2 })}
       <div style="position:relative"><h2>${bit('BlurText', { text: `${hello}, ${(st.fromName || 'Roshan').split(' ')[0]} 👋`, delay: 90, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2>
         <p>${critTMs.length ? `${critTMs.length} of ${b.rows.length} TMs have something that needs attention.` : 'Everything is on track across the team.'}</p>
         <div class="hero-faces" style="margin:16px 0 0 12px">${b.rows.map((r) => `<a href="#/tm/${encodeURIComponent(r.name)}" title="${esc(r.name)}"><img src="${photo(r)}" alt=""></a>`).join('')}</div></div>
-      <div class="next-send" style="position:relative"><small>${esc(nx.label)}</small><b>${bit('GradientText', { colors: ['#ffffff', '#7ee0d4', '#ffffff'], animationSpeed: 5 }, esc(nx.value))}</b><small style="margin-top:4px">${st.email ? `from ${esc(st.sender)}` : 'Email not set up yet'}</small></div>
+      <div class="next-send" style="position:relative"><small>${esc(nx.label)}</small><b>${bit('GradientText', { colors: ['#ffffff', '#b3b6fa', '#ffffff'], animationSpeed: 5 }, esc(nx.value))}</b><small style="margin-top:4px">${st.email ? `from ${esc(st.sender)}` : 'Email not set up yet'}</small></div>
     </div>
     ${critTMs.length ? `<span class="ticker rise" style="--i:1" data-bit="Marquee" data-props="${esc(JSON.stringify({ pauseOnHover: true, repeat: 4, style: { '--duration': `${Math.max(30, critTMs.reduce((a, r) => a + r.concerns.length, 0) * 5)}s`, '--gap': '12px' } }))}">${critTMs.map((r) => r.concerns.map((c) => `<a href="#/tm/${encodeURIComponent(r.name)}"><img src="${photo(r)}" alt=""><b>${esc(r.first)}</b><i></i>${esc(c)}</a>`).join('')).join('')}</span>` : ''}
     <div class="section-title"><h2>Team tasks</h2><span>${esc(SLOT_LABEL[b.slot])}. Click a tile for the full list.</span></div>
@@ -371,7 +371,16 @@ async function team() {
 // ---------- TM profile ----------
 const CRM = 'https://lighthouse.uprio.com/tutoring-crm';
 const lhLink = (href, html) => (href ? `<a class="lh" href="${esc(href)}" target="_blank" rel="noopener" title="Open in Lighthouse">${html}<span class="ext">↗</span></a>` : html);
-const TASK_PAGE = { onboarding: CRM + '/task', negfb: CRM + '/task', ic2: CRM + '/revision-lift' };
+const TASK_PAGE = { onboarding: CRM + '/task', negfb: CRM + '/task', ic2: CRM + '/revision-lift', chapters: CRM + '/management-review', approvals: CRM + '/management-review' };
+// Next renewal date, with a red tag when it is close or already passed.
+function renewalCell(s) {
+  if (!s.renewal) return '—';
+  const d = new Date(s.renewal);
+  const days = Math.ceil((d - Date.now()) / 86400000);
+  const date = esc(d.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: '2-digit' }));
+  const when = days < 0 ? `<span class="tag red">${-days}d overdue</span>` : days <= 7 ? `<span class="tag red">in ${days}d</span>` : `<small style="color:var(--ink-3)">in ${days} days</small>`;
+  return `${date}<br>${when}`;
+}
 function itemsTable(t, items, withTm) {
   if (!items.length) return '<div class="empty">Nothing pending here 🎉</div>';
   return `<div class="table-wrap"><table class="tbl"><thead><tr><th class="num">#</th>${withTm ? '<th>TM</th>' : ''}${t.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${items
@@ -408,7 +417,7 @@ function studentRows(students) {
     if (f.filter === 'lowatt') return s.att && s.att.regHeld > 0 && s.att.regAttended / s.att.regHeld < 0.7;
     return true;
   });
-  const key = { name: (s) => s.name.toLowerCase(), grade: (s) => Number(s.grade) || 0, green: (s) => s.greenPct ?? -1, imp: (s) => s.improvementPct ?? -1, contact: (s) => daysAgo(s.lastContact) ?? 999, lift: (s) => s.liftLoad ?? 0, att: (s) => (s.att && s.att.regHeld ? s.att.regAttended / s.att.regHeld : s.att && s.att.allHeld ? s.att.allAttended / s.att.allHeld - 2 : -3), streak: (s) => (s.att ? s.att.streak : -1) }[f.sort];
+  const key = { name: (s) => s.name.toLowerCase(), renewal: (s) => (s.renewal ? new Date(s.renewal).getTime() : Infinity), grade: (s) => Number(s.grade) || 0, green: (s) => s.greenPct ?? -1, imp: (s) => s.improvementPct ?? -1, contact: (s) => daysAgo(s.lastContact) ?? 999, lift: (s) => s.liftLoad ?? 0, att: (s) => (s.att && s.att.regHeld ? s.att.regAttended / s.att.regHeld : s.att && s.att.allHeld ? s.att.allAttended / s.att.allHeld - 2 : -3), streak: (s) => (s.att ? s.att.streak : -1) }[f.sort];
   list = list.sort((a, b) => (key(a) > key(b) ? 1 : key(a) < key(b) ? -1 : 0) * f.dir);
   const bar = (v) => (typeof v !== 'number' ? '<span style="color:var(--ink-3)">—</span>' : `<span class="bar-mini"><i style="width:${v}%;background:${v >= 70 ? 'var(--green)' : v >= 50 ? '#c98a00' : 'var(--red)'}"></i></span>${v}%`);
   return {
@@ -432,12 +441,12 @@ function studentRows(students) {
         return `<tr class="${nc || (a && a.streak >= 3) || (typeof s.greenPct === 'number' && s.greenPct < 40) ? 'flag' : ''}"><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${s.id}`, esc(s.name))}</b>${s.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${s.oneOnOne ? ' <span class="tag">1:1</span>' : ''}</td>
           <td class="num">${esc(s.grade ?? '—')}</td>
-          <td>${esc(s.school || '—')}<br><small style="color:var(--ink-3)">${esc((s.batch || '').split('|')[0])}</small></td>
+          <td>${lhLink(s.schoolId ? `https://lighthouse.uprio.com/school-planning/v2/${s.schoolId}?grade=${encodeURIComponent(s.grade ?? '')}` : '', esc(s.school || '—'))}<br><small style="color:var(--ink-3)">${esc((s.batch || '').split('|')[0])}</small></td>
           <td style="white-space:nowrap">${attCell}</td><td style="white-space:nowrap">${absCell}</td>
           <td style="white-space:nowrap">${bar(s.greenPct)}</td><td style="white-space:nowrap">${bar(s.improvementPct)}</td>
           <td class="num">${s.liftLoad ?? '—'}</td>
           <td>${d === null ? '<span class="tag red">Never</span>' : nc ? `<span class="tag red">${d}d ago</span>` : `${d}d ago`}</td>
-          <td>${s.nextExam && s.nextExam.date ? `${esc(s.nextExam.name || 'Exam')}<br><small style="color:var(--ink-3)">${esc(new Date(s.nextExam.date).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }))}</small>` : '—'}</td></tr>`;
+          <td>${renewalCell(s)}</td></tr>`;
       })
       .join(''),
   };
@@ -484,11 +493,11 @@ async function tm([name, focus]) {
 
   view.innerHTML = `
     <a class="back" href="#/team">← All TMs</a>
-    <div class="profile-hero rise">${magic('BorderBeam', { size: 180, duration: 10, colorFrom: '#7ee0d4', colorTo: '#f2b84b', borderWidth: 2 })}
+    <div class="profile-hero rise">${magic('BorderBeam', { size: 180, duration: 10, colorFrom: '#b3b6fa', colorTo: '#f2b84b', borderWidth: 2 })}
       <div class="blur" style="background-image:url('${photo(r)}')"></div>
       ${bit('TiltedCard', { imageSrc: photo(r), altText: r.name, containerHeight: '156px', containerWidth: '156px', imageHeight: '148px', imageWidth: '148px', rotateAmplitude: 14, scaleOnHover: 1.08, showTooltip: false, flipOnClick: false, gyroscope: false, radius: 30, glare: 0.5 }, '', 'display:block;width:156px;height:156px')}
       <div><h2>${bit('BlurText', { text: r.name, delay: 120, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2><div class="meta">Tutor Manager · ${esc(r.email)}</div>
-        <div class="chips"><span class="chip">🏅 Rank ${rank} of ${j.team.length}</span><span class="chip">👩‍🎓 ${P.students} students</span><span class="chip">🏫 ${P.batches} batches</span><span class="chip">${bit('ShinyText', { text: P.grade, color: '#d6efec', shineColor: '#ffffff', speed: 2.5 })}</span>${r.concerns.length ? `<span class="chip" style="background:rgba(255,120,100,.3)">⚠ ${r.concerns.length} critical</span>` : ''}</div></div>
+        <div class="chips"><span class="chip">🏅 Rank ${rank} of ${j.team.length}</span><span class="chip">👩‍🎓 ${P.students} students</span><span class="chip">🏫 ${P.batches} batches</span><span class="chip">${bit('ShinyText', { text: P.grade, color: '#dfe0fa', shineColor: '#ffffff', speed: 2.5 })}</span>${r.concerns.length ? `<span class="chip" style="background:rgba(255,120,100,.3)">⚠ ${r.concerns.length} critical</span>` : ''}</div></div>
       ${ring(P.score, 'lg')}
     </div>
     <div class="grid g-2" style="margin-top:18px">
@@ -511,7 +520,7 @@ async function tm([name, focus]) {
           <select class="sel" id="stuF"><option value="all">All students</option><option value="low">Green below 60%</option><option value="nc15">Not contacted 15+ days</option><option value="absent">Absent 3+ class days</option><option value="lowatt">Regular attendance below 70%</option><option value="one">1:1 students</option><option value="lapsed">Subscription lapsed</option></select>
           <span class="note" id="stuN"></span>
           <a class="btn btn-ghost" href="/api/students.csv?tm=${encodeURIComponent(r.name)}" download>⬇ Download CSV</a></div>
-        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th><th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th>Next exam</th></tr></thead><tbody id="stuBody"></tbody></table></div>
+        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th><th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th class="sort" data-s="renewal">Next renewal</th></tr></thead><tbody id="stuBody"></tbody></table></div>
       </div>
     </div>`;
 
