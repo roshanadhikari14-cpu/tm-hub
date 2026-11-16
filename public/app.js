@@ -369,13 +369,16 @@ async function team() {
 }
 
 // ---------- TM profile ----------
+const CRM = 'https://lighthouse.uprio.com/tutoring-crm';
+const lhLink = (href, html) => (href ? `<a class="lh" href="${esc(href)}" target="_blank" rel="noopener" title="Open in Lighthouse">${html}<span class="ext">↗</span></a>` : html);
+const TASK_PAGE = { onboarding: CRM + '/task', negfb: CRM + '/task', ic2: CRM + '/revision-lift' };
 function itemsTable(t, items, withTm) {
   if (!items.length) return '<div class="empty">Nothing pending here 🎉</div>';
   return `<div class="table-wrap"><table class="tbl"><thead><tr><th class="num">#</th>${withTm ? '<th>TM</th>' : ''}${t.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${items
     .map(
       (it, i) =>
         `<tr class="${it.flag ? 'flag' : ''}"><td class="num">${i + 1}</td>${withTm ? `<td><b>${esc(it.tm)}</b></td>` : ''}${it.cells
-          .map((c, j) => `<td>${j === it.cells.length - 1 && it.flag ? `<span class="tag red">${esc(c)}</span>` : esc(c)}</td>`)
+          .map((c, j) => `<td>${j === it.cells.length - 1 && it.flag ? `<span class="tag red">${esc(c)}</span>` : j === 0 ? lhLink(it.link, esc(c)) : j === 1 ? lhLink(it.taskLink, esc(c)) : esc(c)}</td>`)
           .join('')}</tr>`
     )
     .join('')}</tbody></table></div>`;
@@ -427,7 +430,7 @@ function studentRows(students) {
               ? `<span class="tag ${a.streak >= 3 ? 'red' : ''}">${a.streak} class day${a.streak > 1 ? 's' : ''}</span><br><small style="color:var(--ink-3)">${a.lastAttended ? `last attended ${shortDay(a.lastAttended)}` : 'never attended'}</small>`
               : '<span style="color:var(--green);font-weight:600">Attending</span>';
         return `<tr class="${nc || (a && a.streak >= 3) || (typeof s.greenPct === 'number' && s.greenPct < 40) ? 'flag' : ''}"><td class="num">${i + 1}</td>
-          <td><b>${esc(s.name)}</b>${s.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${s.oneOnOne ? ' <span class="tag">1:1</span>' : ''}</td>
+          <td><b>${lhLink(`${CRM}/students/view/${s.id}`, esc(s.name))}</b>${s.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${s.oneOnOne ? ' <span class="tag">1:1</span>' : ''}</td>
           <td class="num">${esc(s.grade ?? '—')}</td>
           <td>${esc(s.school || '—')}<br><small style="color:var(--ink-3)">${esc((s.batch || '').split('|')[0])}</small></td>
           <td style="white-space:nowrap">${attCell}</td><td style="white-space:nowrap">${absCell}</td>
@@ -568,7 +571,7 @@ async function tasks([key]) {
   const all = b.rows.flatMap((r) => r.tasks[t.key].items.map((it) => ({ ...it, tm: r.first }))).sort((a, c) => c.flag - a.flag || a.sort - c.sort);
   view.innerHTML = `
     <div class="tabs rise" id="ttabs">${S.tasks.map((x) => `<button class="${x.key === t.key ? 'on' : ''}" data-key="${x.key}">${x.icon} ${esc(x.short)}${count(x)}</button>`).join('')}</div>
-    <div class="card rise" style="--i:1;margin-top:18px"><h3>${t.icon} ${esc(t.label)} · by TM</h3><div class="sub" style="margin-bottom:12px">Rows in red need attention. Click a row to open the TM.</div>${summary}</div>
+    <div class="card rise" style="--i:1;margin-top:18px"><h3>${t.icon} ${esc(t.label)} · by TM <a class="lh" style="font-size:12.5px;font-weight:500;margin-left:8px" href="${TASK_PAGE[t.key] || CRM + '/tm-performance'}" target="_blank" rel="noopener">Open in Lighthouse<span class="ext">↗</span></a></h3><div class="sub" style="margin-bottom:12px">Rows in red need attention. Click a row to open the TM.</div>${summary}</div>
     ${
       t.kind === 'talk'
         ? ''
