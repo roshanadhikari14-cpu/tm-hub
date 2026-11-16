@@ -1,0 +1,27 @@
+/* Tailwind utilities used by the bundled Magic UI components.
+   No base reset is imported, so the hub's own styles are untouched. */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../../magicui/apps/www/registry/magicui/border-beam.tsx";
+@source "../../magicui/apps/www/registry/magicui/marquee.tsx";
+@source "../../magicui/apps/www/registry/magicui/shine-border.tsx";
+
+@theme {
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  --animate-shine: shine var(--duration) infinite linear;
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-100% - var(--gap))); }
+  }
+  @keyframes marquee-vertical {
+    from { transform: translateY(0); }
+    to { transform: translateY(calc(-100% - var(--gap))); }
+  }
+  @keyframes shine {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 100% 100%; }
+    to { background-position: 0% 0%; }
+  }
+}

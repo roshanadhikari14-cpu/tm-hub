@@ -1,0 +1,19 @@
+{
+  "name": "tm-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TM Hub: task board, TM profiles and daily emails for Roshan's team.",
+  "scripts": {
+    "start": "node server.js",
+    "build:bits": "node bits/build.js"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.5",
+    "esbuild": "^0.28.2",
+    "gsap": "^3.15.1",
+    "motion": "^14.14.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5"
+  }
+}
