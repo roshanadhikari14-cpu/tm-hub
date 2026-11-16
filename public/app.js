@@ -595,6 +595,13 @@ async function tasks([key]) {
   if (fo) fo.onchange = () => ($('#allItems').innerHTML = itemsTable(t, fo.checked ? all.filter((x) => x.flag) : all, true));
 }
 
+// The full send of this slot that already went out today, if any.
+function sentToday(st, slot) {
+  const e = (st.log || []).find((x) => x.slot === slot && !x.test && x.sent >= 2 && new Date(x.at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === st.now.date);
+  if (!e) return null;
+  return { time: new Date(e.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }), how: e.manual ? 'by hand' : 'automatically', sent: e.sent };
+}
+
 // ---------- Reports ----------
 async function reports([who]) {
   const b = await load();
@@ -617,7 +624,7 @@ async function reports([who]) {
           <div class="send-bar" style="margin-top:0"><button class="btn btn-primary" id="testOne">Test this mail</button><button class="btn btn-ghost" id="sendTest">Test all ${b.rows.length + 1}</button></div></div>
         <div class="section-title" style="margin:18px 0 8px"><h2 style="font-size:14px">Send to the team</h2></div>
         <div class="send-bar" style="margin-top:0"><button class="btn btn-ghost" id="sendOne">Send this one</button><button class="btn btn-ghost" id="sendAll">Send all now</button></div>
-        <p class="note">Automatic sending runs Mon–Sat at ${esc(st.config.slots.morning)}, ${esc(st.config.slots.progress)} and ${esc(st.config.slots.closure)}.</p>
+        ${(() => { const d = sentToday(st, S.slot); return d ? `<p class="note" style="background:var(--green-bg);color:var(--green);padding:10px 12px;border-radius:10px;font-weight:600">✓ Today's ${esc(SLOT_LABEL[S.slot])} mail was already sent ${d.how} at ${esc(d.time)} (${d.sent} mails).</p>` : `<p class="note" style="background:var(--amber-bg);color:var(--amber);padding:10px 12px;border-radius:10px">Today's ${esc(SLOT_LABEL[S.slot])} mail has not been sent yet. It goes out automatically within a few minutes of its time.</p>`; })()}<p class="note">Automatic sending runs Mon–Sat at ${esc(st.config.slots.morning)}, ${esc(st.config.slots.progress)} and ${esc(st.config.slots.closure)}.</p>
       </div>
       <iframe class="preview rise" style="--i:1" id="pv" title="Email preview"></iframe>
     </div>`;
@@ -662,7 +669,11 @@ async function reports([who]) {
   };
   $('#sendAll').onclick = async (e) => {
     const btn = e.currentTarget;
-    if (!(await confirmBox('Send to the whole team?', `This sends the <b>${esc(SLOT_LABEL[S.slot])}</b> mail to all ${b.rows.length} TMs individually, plus the team board with everyone in CC.`, 'Send all'))) return;
+    await load(true).catch(() => {});
+    const dup = sentToday(S.status || st, S.slot);
+    if (dup) {
+      if (!(await confirmBox('Already sent today', `The <b>${esc(SLOT_LABEL[S.slot])}</b> mail already went out ${dup.how} at <b>${esc(dup.time)}</b>. Sending again gives every TM a second copy.`, 'Send again anyway'))) return;
+    } else if (!(await confirmBox('Send to the whole team?', `This sends the <b>${esc(SLOT_LABEL[S.slot])}</b> mail to all ${b.rows.length} TMs individually, plus the team board with everyone in CC.`, 'Send all'))) return;
     send(btn, {}, 'All sent');
   };
 }
