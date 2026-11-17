@@ -1084,7 +1084,7 @@ function ptmRows(list, withDay) {
   if (!list.length) return '<div class="empty">No PTMs here.</div>';
   return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th></tr></thead><tbody>${list
     .map(
-      (m) => `<tr><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
+      (m) => `<tr class="ptm-row" data-ptm="${esc(m.id)}" title="Click for student and meeting details"><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
         <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
         <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td></tr>`
     )
@@ -1175,6 +1175,7 @@ async function ptm() {
     <div class="tabs rise" id="ptmTabs" style="margin-bottom:12px"><button data-tm="">All TMs</button>${j.team.map((n) => `<button data-tm="${esc(n)}">${esc(n.split(' ')[0])}</button>`).join('')}</div>
     <div class="card rise" id="ptmHist"></div>
     <p class="note" style="margin-top:10px">“Not marked” means the meeting time has passed but it was not marked done or no-show in Lighthouse. Parent time is how long the parent was in the meeting.</p>`;
+  ptmAll = all;
   paintHistory();
   view.querySelectorAll('#ptmTabs button').forEach((b) => (b.onclick = () => ((ptmView.tm = b.dataset.tm), paintHistory())));
   view.querySelectorAll('#ptmDays button').forEach((b) => (b.onclick = () => ((ptmView.days = Number(b.dataset.days)), paintHistory())));
@@ -1187,3 +1188,126 @@ async function ptm() {
       })
   );
 }
+
+// ---------- PTM detail panel ----------
+// Click a PTM row: the meeting, the student's profile, open tasks and every PTM with this family.
+let ptmAll = [];
+const dDate = (iso, opts) => (iso ? new Date(iso).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', ...opts }) : '—');
+const dAgo = (iso) => {
+  if (!iso) return '';
+  const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+};
+const dField = (label, html, full) => `<div class="${full ? 'dfull' : ''}"><small>${esc(label)}</small><b>${html}</b></div>`;
+const dPct = (label, v) => (v == null ? '' : dField(label, `${v}%<div class="dbar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`));
+const BOOKED_FROM = { student_page: 'student page', task: 'a task', tm_meetings: 'Parent Meetings page' };
+function closePtmPanel() {
+  $$('.drawer, .drawer-bg').forEach((el) => el.remove());
+  document.removeEventListener('keydown', ptmEsc);
+}
+function ptmEsc(e) {
+  if (e.key === 'Escape') closePtmPanel();
+}
+async function openPtmPanel(meetingId) {
+  const m = ptmAll.find((x) => x.id === meetingId);
+  if (!m) return;
+  closePtmPanel();
+  const bg = document.createElement('div');
+  bg.className = 'drawer-bg';
+  bg.onclick = closePtmPanel;
+  const dr = document.createElement('aside');
+  dr.className = 'drawer';
+  dr.setAttribute('role', 'dialog');
+  dr.innerHTML = `<div class="drawer-head"><button class="drawer-x" title="Close (Esc)">✕</button><h3>${esc(m.student)}</h3><div class="sub">PTM with ${esc(m.tm)} · ${esc(ptmDay(m))}, ${esc(ptmTime(m))}</div></div>
+    <div class="drawer-body"><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:220px"></div></div>`;
+  document.body.append(bg, dr);
+  $('.drawer-x', dr).onclick = closePtmPanel;
+  document.addEventListener('keydown', ptmEsc);
+  let j;
+  try {
+    j = await api(`/api/ptm/student/${encodeURIComponent(m.studentId)}`);
+  } catch (e) {
+    $('.drawer-body', dr).innerHTML = `<div class="dsec"><h4>Could not load the student</h4><p class="note">${esc(e.message)}</p></div>`;
+    return;
+  }
+  if (!dr.isConnected) return;
+  const s = j.student || {};
+  const cur = j.ptms.find((x) => x.id === m.id) || {};
+  const parent = cur.parent || '';
+  const links = [
+    `<a href="${esc(j.crm)}" target="_blank" rel="noopener">Tutoring CRM ↗</a>`,
+    `<a href="${esc(j.crm)}?activeTab=concernsAndRequests" target="_blank" rel="noopener">Concerns ↗</a>`,
+    s.schoolId ? `<a href="https://lighthouse.uprio.com/school-planning/v2/${esc(s.schoolId)}?grade=${esc(s.grade || '')}" target="_blank" rel="noopener">School planning ↗</a>` : '',
+    `<a href="${esc(CRM)}/parent-meetings" target="_blank" rel="noopener">Parent Meetings ↗</a>`,
+  ].join('');
+  $('.drawer-head', dr).insertAdjacentHTML(
+    'beforeend',
+    `<div class="sub">${[s.grade ? `Grade ${esc(s.grade)}` : '', s.school ? esc(s.school) : '', j.tm ? `TM ${esc(j.tm)}` : ''].filter(Boolean).join(' · ')}</div><div class="links">${links}</div>`
+  );
+  // This meeting
+  const meeting = `<div class="dsec"><h4>This meeting ${ptmTag(m)}</h4><div class="dgrid">
+      ${dField('When', `${esc(ptmDay(m))}, ${esc(ptmTime(m))}`)}
+      ${dField('Hosted by', esc(m.tm))}
+      ${dField('Parent', esc(parent) || '—')}
+      ${dField('Parent time in meeting', esc(ptmParent(m)))}
+      ${dField('Also in the meeting', esc(m.with.join(', ')) || '—', true)}
+      ${cur.bookedAt ? dField('Booked', `${esc(dDate(cur.bookedAt))}${cur.bookedFrom ? ` from the ${esc(BOOKED_FROM[cur.bookedFrom] || cur.bookedFrom.replace(/_/g, ' '))}` : ''}`) : ''}
+      ${dField('Recording', m.recording ? 'Available in Lighthouse' : 'None')}
+      ${m.agenda ? `<div class="dfull"><small>Agenda</small><div class="dnote">${esc(m.agenda)}</div></div>` : ''}
+      ${cur.cancelReason ? `<div class="dfull"><small>Cancel reason</small><div class="dnote">${esc(cur.cancelReason)}</div></div>` : ''}
+    </div></div>`;
+  // Student profile from the hub's latest Lighthouse pull
+  const att = s.att || {};
+  const profile = j.student
+    ? `<div class="dsec"><h4>Student</h4><div class="dgrid">
+      ${dField('Batch', esc(s.batch) || '—', true)}
+      ${dField('Maths level', esc(s.level) || '—')}
+      ${dField('Class type', s.oneOnOne ? '1-on-1' : 'Group batch')}
+      ${dField('Joined', esc(dDate(s.joinedAt)))}
+      ${dField('Next renewal', s.renewal ? `${esc(dDate(s.renewal))}${s.lapsed ? ' <span class="ptag red">lapsed</span>' : ''}` : s.lapsed ? '<span class="ptag red">Subscription lapsed</span>' : '—')}
+      ${dField('Attendance this month', att.allHeld ? `${att.allAttended}/${att.allHeld} classes${att.regHeld ? ` · regular ${att.regAttended}/${att.regHeld}` : ''}` : '—')}
+      ${dField('Last class attended', att.lastAttended ? `${esc(dDate(att.lastAttended))}${att.onHoliday ? ' · on holiday' : ''}` : '—')}
+      ${dField('Last parent connect', s.lastContact ? `${esc(dDate(s.lastContact))} <span style="color:var(--ink-3);font-weight:500">(${esc(dAgo(s.lastContact))})</span>` : '—')}
+      ${dField('Parent connects, last 30 days', s.contacts30 == null ? '—' : esc(s.contacts30))}
+      ${dPct('Green chapters', s.greenPct)}
+      ${dPct('Process', s.processPct)}
+      ${dPct('Improvement', s.improvementPct)}
+      ${dField('Evaluations', s.evalCount == null ? '—' : esc(s.evalCount))}
+      ${s.catchupMissPct != null ? dField('Catch-up missed', `${esc(s.catchupMissPct)}%`) : ''}
+    </div></div>`
+    : `<div class="dsec"><h4>Student</h4><p class="note">This student is not in the team's current student lists, so only Lighthouse links are shown.</p></div>`;
+  // Open tasks today
+  const tasks = `<div class="dsec"><h4>Open tasks on this student <span class="ptag ${j.tasks.length ? 'amber' : 'ok'}">${j.tasks.length || 'None'}</span></h4>${
+    j.tasks.length
+      ? `<div class="dlist">${j.tasks
+          .map(
+            (t) =>
+              `<div class="it"><div class="when">${t.icon} ${esc(t.task.split(' (')[0])}</div><div class="what">${t.cells
+                .slice(1)
+                .map((c, i) => `<small style="color:var(--ink-3)">${esc(t.cols[i + 1] || '')}:</small> ${esc(c)}`)
+                .join('<br>')}${t.flag ? ' <span class="ptag red">overdue</span>' : ''}</div>${t.link ? `<a class="lh" href="${esc(t.link)}" target="_blank" rel="noopener">Open<span class="ext">↗</span></a>` : ''}</div>`
+          )
+          .join('')}</div>`
+      : '<p class="note" style="margin:0">Nothing open for this student on today’s board.</p>'
+  }</div>`;
+  // All PTMs with this family
+  const hist = `<div class="dsec"><h4>All PTMs with this family <span class="ptag blue">${j.ptms.length}</span></h4>${
+    j.error
+      ? `<p class="note">${esc(j.error)}</p>`
+      : j.ptms.length
+      ? `<div class="dlist">${j.ptms
+          .map((p) => {
+            const st = { ...p, status: p.status };
+            return `<div class="it ${p.id === m.id ? 'cur' : ''}"><div class="when">${esc(dDate(p.start, { year: '2-digit' }))}<small>${esc(ptmTime(p))}</small></div><div class="what">${ptmTag(st)} <small style="color:var(--ink-3)">with ${esc(p.host)}${p.parent ? ` · parent ${esc(p.parent)}` : ''}${p.parentMinutes ? ` · ${p.parentMinutes} min` : ''}</small>${p.agenda ? `<div style="margin-top:4px">${esc(p.agenda)}</div>` : ''}</div></div>`;
+          })
+          .join('')}</div>`
+      : '<p class="note" style="margin:0">No PTMs found.</p>'
+  }</div>`;
+  $('.drawer-body', dr).innerHTML = meeting + profile + tasks + hist;
+}
+document.addEventListener('click', (e) => {
+  const row = e.target.closest && e.target.closest('.ptm-row');
+  if (!row || e.target.closest('a')) return;
+  openPtmPanel(row.dataset.ptm);
+});
+window.addEventListener('hashchange', closePtmPanel);

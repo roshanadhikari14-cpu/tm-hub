@@ -7,7 +7,7 @@ require('dotenv').config({ path: ENV_FILE });
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const nodemailer = require('nodemailer');
-const { fetchAll, loadLatest, istDate, addDays, ptmMeetings } = require('./lib/lighthouse');
+const { fetchAll, loadLatest, istDate, addDays, ptmMeetings, studentPtms } = require('./lib/lighthouse');
 const M = require('./lib/model');
 const { tmEmail, teamEmail, SLOT } = require('./lib/emails');
 const G = require('./lib/google');
@@ -451,6 +451,49 @@ app.get('/api/ptm', async (req, res) => {
     team: tms.map((t) => t.name),
     meetings: ptmCache.data.map((m) => ({ ...m, tm: tmOf(m.host) })),
   });
+});
+
+// One student, for the PTM detail panel: hub profile, open tasks and all their PTMs.
+app.get('/api/ptm/student/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Unknown student.' });
+  const A = loadLatest() || {};
+  let student = null;
+  let tmLh = '';
+  for (const [lh, list] of Object.entries(A.students || {})) {
+    const s = (list || []).find((x) => Number(x.id) === id);
+    if (s) {
+      student = s;
+      tmLh = lh;
+      break;
+    }
+  }
+  const tmName = (team().find((m) => (m.lighthouseName || m.name) === tmLh) || {}).name || tmLh;
+  // Open tasks on this student today, from the same board the mails use.
+  const tasks = [];
+  const b = board();
+  const link = M.stuLink(id);
+  for (const r of (b && b.rows) || [])
+    for (const t of M.TASKS) {
+      const s = r.tasks[t.key];
+      for (const it of (s && s.items) || []) if (it.link === link) tasks.push({ task: t.label, icon: t.icon, cols: t.cols, cells: it.cells, flag: Boolean(it.flag), link: it.taskLink || it.link, tm: r.name });
+    }
+  let ptms = [];
+  let error = '';
+  try {
+    ptms = await studentPtms(id);
+  } catch (e) {
+    error = e.message;
+  }
+  // Parent time is only in the team history; add it where we have it.
+  const seen = new Map(((ptmCache && ptmCache.data) || []).map((m) => [m.id, m]));
+  ptms = ptms
+    .map((m) => {
+      const h = seen.get(m.id);
+      return { ...m, parentMinutes: h ? h.parentMinutes : null, parentJoined: h ? h.parentJoined : null, with: h ? h.with : [], recording: h ? h.recording : false };
+    })
+    .sort((a, b) => String(b.start).localeCompare(String(a.start)));
+  res.json({ id, tm: tmName, student, tasks, ptms, error, crm: link });
 });
 
 app.get('/api/tm/:name', (req, res) => {
