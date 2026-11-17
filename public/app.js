@@ -204,7 +204,7 @@ $('#refreshBtn').onclick = async () => {
 };
 
 // ---------- router ----------
-const routes = { dashboard, team, tm, tasks, reports, schedule, settings };
+const routes = { dashboard, team, tm, tasks, ptm, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
@@ -1053,3 +1053,137 @@ document.addEventListener('mouseout', (e) => {
   if (el && !el.contains(e.relatedTarget)) clearTimeout(voice.timer);
 });
 window.addEventListener('hashchange', hush);
+
+// ---------- PTM ----------
+// Parent-teacher meetings from Lighthouse: today's schedule, each TM's count, and history.
+const PTM_STATUS = {
+  completed: ['Done', 'ok'],
+  no_show: ['Parent no-show', 'red'],
+  cancelled: ['Cancelled', 'grey'],
+  upcoming: ['Upcoming', 'blue'],
+  live: ['In progress', 'blue'],
+  unmarked: ['Not marked', 'amber'],
+};
+function ptmState(m) {
+  if (m.status !== 'scheduled') return PTM_STATUS[m.status] ? m.status : 'unmarked';
+  const now = Date.now();
+  if (new Date(m.start) > now) return 'upcoming';
+  if (new Date(m.end) > now) return 'live';
+  return 'unmarked';
+}
+const ptmTag = (m) => {
+  const [label, cls] = PTM_STATUS[ptmState(m)];
+  return `<span class="ptag ${cls}">${esc(label)}</span>`;
+};
+const ptmTime = (m) => new Date(m.start).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
+const ptmDay = (m) => new Date(m.start).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' });
+const ptmParent = (m) => (m.parentMinutes == null ? (m.parentJoined ? 'Joined' : '—') : m.parentMinutes ? `${m.parentMinutes} min` : 'Did not join');
+const ptmStudent = (m) => lhLink(m.studentId ? `${CRM}/students/view/${m.studentId}` : '', esc(m.student));
+const ptmView = { tm: '', days: 7 };
+function ptmRows(list, withDay) {
+  if (!list.length) return '<div class="empty">No PTMs here.</div>';
+  return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th></tr></thead><tbody>${list
+    .map(
+      (m) => `<tr><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
+        <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
+        <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td></tr>`
+    )
+    .join('')}</tbody></table></div>`;
+}
+const isoShift = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+async function ptm() {
+  title('PTM', 'Loading parent-teacher meetings from Lighthouse…');
+  view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:120px"></div>'.repeat(4) + '</div>';
+  let j;
+  try {
+    j = await api('/api/ptm');
+  } catch (e) {
+    title('PTM', '');
+    view.innerHTML = `<div class="card rise"><h3>PTMs could not be loaded</h3><p class="note">${esc(e.message)}</p></div>`;
+    return;
+  }
+  title('PTM', `Parent-teacher meetings · from Lighthouse at ${fmtTime(j.fetchedAt)}`);
+  const all = j.meetings;
+  const today = all.filter((m) => m.date === j.today);
+  const weekStart = isoShift(j.today, -((new Date(`${j.today}T00:00:00Z`).getUTCDay() + 6) % 7));
+  const count = (list, st) => list.filter((m) => ptmState(m) === st).length;
+  const booked = (list) => list.filter((m) => m.status !== 'cancelled').length;
+  const since = (d) => all.filter((m) => m.date >= d);
+  const tiles = [
+    ['📅', booked(today), 'PTMs today', `${count(today, 'upcoming') + count(today, 'live')} still to come`],
+    ['✅', count(today, 'completed'), 'Done today', `${count(today, 'no_show')} parent no-show`],
+    ['🗓', count(since(weekStart), 'completed'), 'Done this week', `of ${booked(since(weekStart))} booked`],
+    ['📈', count(since(j.monthStart), 'completed'), 'Done this month', `of ${booked(since(j.monthStart))} booked`],
+  ]
+    .map(
+      ([ico, v, lbl, meta], i) =>
+        `<div class="card kpi rise" style="--i:${i};cursor:default"><div class="top"><div class="ico">${ico}</div></div><div class="val"><span data-count="${v}">0</span></div><div class="lbl">${esc(lbl)}</div><div class="meta">${esc(meta)}</div></div>`
+    )
+    .join('');
+  // One row per TM.
+  const stat = (list) => {
+    const o = { booked: 0, done: 0, noshow: 0, cancelled: 0, unmarked: 0, minutes: 0 };
+    for (const m of list) {
+      const s = ptmState(m);
+      if (s === 'cancelled') o.cancelled++;
+      else o.booked++;
+      if (s === 'completed') o.done++;
+      if (s === 'no_show') o.noshow++;
+      if (s === 'unmarked') o.unmarked++;
+      if (m.date >= j.monthStart) o.minutes += m.parentMinutes || 0;
+    }
+    return o;
+  };
+  const names = [...new Set([...j.team, ...all.map((m) => m.tm)])];
+  const perTm = names
+    .map((n) => {
+      const mine = all.filter((m) => m.tm === n);
+      return { n, t: stat(mine.filter((m) => m.date === j.today)), w: stat(mine.filter((m) => m.date >= weekStart)), mo: stat(mine.filter((m) => m.date >= j.monthStart)) };
+    })
+    .sort((a, b) => b.mo.done - a.mo.done || b.mo.booked - a.mo.booked);
+  const frac = (o) => (o.booked ? `${o.done}/${o.booked} done` : '—');
+  const tmTable = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th><th class="num">Today</th><th class="num">This week</th><th class="num">Month: booked</th><th class="num">Done</th><th class="num">Parent no-show</th><th class="num">Not marked</th><th class="num">Cancelled</th><th class="num">Parent time</th></tr></thead><tbody>${perTm
+    .map(
+      (r) => `<tr class="ptm-tm" data-ptmtm="${esc(r.n)}" title="Show ${esc(r.n)}’s past PTMs below"><td><b>${esc(r.n)}</b></td>
+        <td class="num">${frac(r.t)}</td><td class="num">${frac(r.w)}</td><td class="num">${r.mo.booked}</td><td class="num"><b>${r.mo.done}</b></td>
+        <td class="num">${r.mo.noshow ? `<span class="ptag red">${r.mo.noshow}</span>` : 0}</td><td class="num">${r.mo.unmarked ? `<span class="ptag amber">${r.mo.unmarked}</span>` : 0}</td>
+        <td class="num">${r.mo.cancelled}</td><td class="num">${r.mo.minutes} min</td></tr>`
+    )
+    .join('')}</tbody></table></div>`;
+  const paintHistory = () => {
+    const from = isoShift(j.today, -ptmView.days);
+    const list = all.filter((m) => m.date >= from && m.date < j.today && (!ptmView.tm || m.tm === ptmView.tm)).reverse();
+    $('#ptmHist').innerHTML = ptmRows(list, true);
+    $$('#ptmTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tm === ptmView.tm));
+    $$('#ptmDays button').forEach((b) => b.classList.toggle('on', Number(b.dataset.days) === ptmView.days));
+    $$('.ptm-tm').forEach((tr) => tr.classList.toggle('on', tr.dataset.ptmtm === ptmView.tm));
+    moveTab($('#ptmTabs'));
+    moveTab($('#ptmDays'));
+  };
+  const dayName = new Date(`${j.today}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  view.innerHTML = `
+    <div class="grid g-kpi">${tiles}</div>
+    <div class="section-title"><h2>Today’s PTM schedule</h2><span>${esc(dayName)} · ${lhLink(CRM + '/parent-meetings', 'Open in Lighthouse')}</span></div>
+    <div class="card rise">${today.length ? ptmRows(today, false) : '<div class="empty">No PTMs booked for today yet. New bookings show up here when you open this page again.</div>'}</div>
+    <div class="section-title"><h2>PTMs taken by each TM</h2><span>Done = held and marked done in Lighthouse. Click a TM to see their past PTMs.</span></div>
+    <div class="card rise">${tmTable}</div>
+    <div class="section-title"><h2>Past PTMs</h2><span class="tabs" id="ptmDays">${[7, 30].map((d) => `<button data-days="${d}">Last ${d} days</button>`).join('')}</span></div>
+    <div class="tabs rise" id="ptmTabs" style="margin-bottom:12px"><button data-tm="">All TMs</button>${j.team.map((n) => `<button data-tm="${esc(n)}">${esc(n.split(' ')[0])}</button>`).join('')}</div>
+    <div class="card rise" id="ptmHist"></div>
+    <p class="note" style="margin-top:10px">“Not marked” means the meeting time has passed but it was not marked done or no-show in Lighthouse. Parent time is how long the parent was in the meeting.</p>`;
+  paintHistory();
+  view.querySelectorAll('#ptmTabs button').forEach((b) => (b.onclick = () => ((ptmView.tm = b.dataset.tm), paintHistory())));
+  view.querySelectorAll('#ptmDays button').forEach((b) => (b.onclick = () => ((ptmView.days = Number(b.dataset.days)), paintHistory())));
+  view.querySelectorAll('.ptm-tm').forEach(
+    (tr) =>
+      (tr.onclick = () => {
+        ptmView.tm = ptmView.tm === tr.dataset.ptmtm ? '' : tr.dataset.ptmtm;
+        paintHistory();
+        window.scrollTo({ top: $('#ptmTabs').getBoundingClientRect().top + window.scrollY - 90, behavior: 'smooth' });
+      })
+  );
+}

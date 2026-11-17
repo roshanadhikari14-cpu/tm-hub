@@ -7,7 +7,7 @@ require('dotenv').config({ path: ENV_FILE });
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const nodemailer = require('nodemailer');
-const { fetchAll, loadLatest, istDate } = require('./lib/lighthouse');
+const { fetchAll, loadLatest, istDate, addDays, ptmMeetings } = require('./lib/lighthouse');
 const M = require('./lib/model');
 const { tmEmail, teamEmail, SLOT } = require('./lib/emails');
 const G = require('./lib/google');
@@ -419,6 +419,38 @@ app.get('/api/board', async (req, res) => {
   }
   const b = board(req.query.slot);
   res.json({ status: status(req), tasks: M.TASKS, board: b });
+});
+
+// PTMs: today's schedule and each TM's meetings this month (and the last 30 days).
+const ptmCache = { at: 0, key: '', data: null };
+app.get('/api/ptm', async (req, res) => {
+  const today = istDate();
+  const back = addDays(today, -29);
+  const monthStart = `${today.slice(0, 8)}01`;
+  const from = monthStart < back ? monthStart : back;
+  const key = `${from}|${today}`;
+  try {
+    if (req.query.fresh || ptmCache.key !== key || Date.now() - ptmCache.at > 3 * 60 * 1000) {
+      ptmCache.data = await ptmMeetings(from, today);
+      ptmCache.at = Date.now();
+      ptmCache.key = key;
+    }
+  } catch (e) {
+    return res.status(502).json({ error: `Could not load PTMs from Lighthouse: ${e.message}` });
+  }
+  const tms = team().map((m) => ({ name: m.name, lh: m.lighthouseName || m.name, old: m.oldName || '' }));
+  const tmOf = (host) => {
+    const t = tms.find((x) => [x.name, x.lh, x.old].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
+    return t ? t.name : host;
+  };
+  res.json({
+    today,
+    from,
+    monthStart,
+    fetchedAt: new Date(ptmCache.at).toISOString(),
+    team: tms.map((t) => t.name),
+    meetings: ptmCache.data.map((m) => ({ ...m, tm: tmOf(m.host) })),
+  });
 });
 
 app.get('/api/tm/:name', (req, res) => {
