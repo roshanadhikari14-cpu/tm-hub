@@ -156,6 +156,7 @@ async function load(force) {
   const j = await api(`/api/board${S.slot ? `?slot=${S.slot}` : ''}`);
   S.status = j.status;
   S.tasks = j.tasks;
+  S.score = j.score;
   S.data = j.board;
   if (!S.slot && j.board) S.slot = j.board.slot;
   paintChrome();
@@ -470,11 +471,17 @@ async function tm([name, focus]) {
   const absent3 = j.students.filter((x) => x.att && x.att.streak >= 3).length;
   const openCount = S.tasks.filter((t) => t.kind !== 'talk').reduce((a, t) => a + r.tasks[t.key].items.length, 0);
 
-  const metricRows = S.tasks
-    .map((t) => {
+  const scoreList = S.score || S.tasks;
+  const wTotal = scoreList.reduce((n, t) => n + (t.weight || 0), 0) || 1;
+  const metricRows = scoreList
+    .filter((t) => P.metrics[t.key])
+    .map((t, i) => {
       const m = P.metrics[t.key];
-      const cls = m.value >= 70 ? '' : m.value >= 40 ? 'amber' : 'red';
-      return `<div class="metric-row"><div class="nm">${t.icon} ${esc(t.short)}<small>${esc(m.label)}</small></div><div class="prog ${cls}"><i data-w="${m.value}"></i></div><div class="v">${m.value}</div></div>`;
+      const v = m.value == null ? 0 : m.value;
+      const cls = v >= 70 ? '' : v >= 40 ? 'amber' : 'red';
+      const share = Math.round((100 * (t.weight || 0)) / wTotal);
+      const tier = i && (scoreList[i - 1].weight || 0) !== (t.weight || 0) ? ' tier-gap' : '';
+      return `<div class="metric-row${tier}"><div class="nm">${t.icon} ${esc(t.short)} <span class="wt" title="Share of the score">${share}%</span><small>${esc(m.label)}</small></div><div class="prog ${cls}"><i data-w="${v}"></i></div><div class="v">${m.value == null ? '—' : v}</div></div>`;
     })
     .join('');
 

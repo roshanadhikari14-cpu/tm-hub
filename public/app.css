@@ -486,3 +486,7 @@ a.lh .ext { font-size: 0.8em; margin-left: 3px; opacity: 0.55; }
 .ptm-dates input:focus, .ptm-dates select:focus { outline: 2px solid var(--teal-3); outline-offset: 1px; }
 .ptm-sum { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; }
 #ptmTabs .count, #ptmPresets .count { margin-left: 6px; }
+
+/* Score weights on the scorecard */
+.metric-row .wt { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--mint); color: var(--teal); margin-left: 4px; vertical-align: 1px; }
+.metric-row.tier-gap { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(51, 55, 158, 0.18); }

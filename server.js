@@ -418,7 +418,7 @@ app.get('/api/board', async (req, res) => {
     if ((!A || A.date !== istNow().date) && (process.env.LIGHTHOUSE_AUTH || process.env.LIGHTHOUSE_COOKIE)) await refresh().catch(() => {});
   }
   const b = board(req.query.slot);
-  res.json({ status: status(req), tasks: M.TASKS, board: b });
+  res.json({ status: status(req), tasks: M.TASKS, score: M.SCORE, board: b });
 });
 
 // PTMs: today's schedule and each TM's meetings this month (and the last 30 days).
