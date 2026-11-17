@@ -540,6 +540,19 @@ app.post('/api/ptm-report/gather', reportStep((b) => PR.gather(b.studentId, load
 app.post('/api/ptm-report/read', reportStep((b) => PR.read(b.item, b.kind, b.tag)));
 app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month)));
 app.post('/api/ptm-report/publish', reportStep((b) => PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.folder || loadConfig().reportFolder)));
+// Read-only check that Google Drive is reachable and the reports folder can be opened.
+app.get('/api/drive-check', async (req, res) => {
+  try {
+    const at = await G.accessToken();
+    const id = loadConfig().reportFolder;
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=name,capabilities(canAddChildren)&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${at}` } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json({ error: (j.error && j.error.message) || `HTTP ${r.status}` });
+    res.json({ ok: true, folder: j.name, canAdd: Boolean(j.capabilities && j.capabilities.canAddChildren) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 // The Claude API key for report writing (pasted by the owner in Settings), and the Drive folder.
 app.post('/api/ai-key', (req, res) => {
   const key = String((req.body || {}).key || '').trim();
