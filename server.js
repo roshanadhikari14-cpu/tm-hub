@@ -292,10 +292,15 @@ app.use(async (req, res, next) => {
   if (persist.enabled) {
     try {
       // Reads reuse a check made in the last 10 seconds; anything that changes data always checks.
+      const t0 = Date.now();
+      let checked = false;
       if (req.method !== 'GET' || req.path.startsWith('/api/cron/') || Date.now() - lastPull > 10000) {
         await persist.pull();
         lastPull = Date.now();
+        checked = true;
       }
+      // Timing for speed checks: where the server runs and how long the database check took.
+      res.setHeader('Server-Timing', `db;dur=${checked ? Date.now() - t0 : 0};desc="${checked ? 'checked' : 'reused'}", fn;desc="${process.env.VERCEL_REGION || 'local'}"`);
       loadCloudEnv();
     } catch (e) {
       return res.status(503).json({ error: e.message });
