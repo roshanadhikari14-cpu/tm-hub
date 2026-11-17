@@ -24,6 +24,16 @@ async function api(path, opts) {
   if (!res.ok) throw new Error(j.error || `Request failed (${res.status})`);
   return j;
 }
+// Short-lived memory of GET answers: pages open instantly, and hovering a TM loads their page early.
+const apiCache = new Map();
+function cachedApi(path, ttl = 120000) {
+  const hit = apiCache.get(path);
+  if (hit && Date.now() - hit.at < ttl) return hit.p;
+  const p = api(path);
+  apiCache.set(path, { at: Date.now(), p });
+  p.catch(() => apiCache.delete(path));
+  return p;
+}
 // Shown instead of the hub when it is on the internet and nobody is signed in.
 function showLogin(j) {
   if ($('#loginScreen')) return;
@@ -81,12 +91,6 @@ function scrollFx(root) {
     barOn = true;
     g.to('#scrollBar', { scaleX: 1, ease: 'none', scrollTrigger: { start: 0, end: 'max', scrub: 0.3 } });
   }
-  const below = $$('.rise, .section-title', root).filter((el) => !el.classList.contains('sr') && el.getBoundingClientRect().top > window.innerHeight * 0.95);
-  below.forEach((el) => el.classList.add('sr'));
-  if (below.length) {
-    g.set(below, { opacity: 0, y: 44, scale: 0.97 });
-    ST.batch(below, { start: 'top 92%', once: true, onEnter: (els) => g.to(els, { opacity: 1, y: 0, scale: 1, duration: 0.8, ease: 'power3.out', stagger: 0.08, overwrite: true }) });
-  }
   // The banner eases back as the page scrolls past it.
   $$('.hero, .profile-hero', root).forEach((hero) => {
     hero.addEventListener('animationend', (e) => e.target === hero && hero.classList.add('rose'));
@@ -102,7 +106,7 @@ function animate(root = view) {
   $$('[data-count]', root).forEach((el) => {
     const end = Number(el.dataset.count) || 0;
     const t0 = performance.now();
-    const dur = 1100;
+    const dur = 380;
     const step = (t) => {
       const p = Math.min(1, (t - t0) / dur);
       el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3)));
@@ -119,7 +123,7 @@ function animate(root = view) {
       });
       $$('[data-w]', root).forEach((el) => (el.style.width = `${Math.max(0, Math.min(100, Number(el.dataset.w)))}%`));
       $$('.tabs', root).forEach(moveTab);
-    }, 80)
+    }, 0)
   );
 }
 function moveTab(tabs) {
@@ -195,6 +199,8 @@ $('#refreshBtn').onclick = async () => {
     const j = await api('/api/refresh', { body: {} });
     toast(j.errors && j.errors.length ? `Refreshed, but ${j.errors.length} list(s) failed: ${j.errors[0]}` : 'Fresh data loaded from Lighthouse', j.errors && j.errors.length ? 'err' : 'ok');
     S.data = null;
+    apiCache.clear();
+    ptmToday = null;
     route(true);
   } catch (err) {
     toast(err.message, 'err');
@@ -212,8 +218,6 @@ async function route(keepScroll) {
   const name = routes[parts[0]] ? parts[0] : 'dashboard';
   const token = ++navToken;
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === (name === 'tm' ? 'team' : name)));
-  view.classList.add('out');
-  await new Promise((r) => setTimeout(r, 160));
   if (token !== navToken) return;
   try {
     await routes[name](parts.slice(1));
@@ -461,7 +465,7 @@ async function tm([name, focus]) {
     title('Profile');
     return noData();
   }
-  const j = await api(`/api/tm/${encodeURIComponent(name)}?slot=${S.slot}`);
+  const j = await cachedApi(`/api/tm/${encodeURIComponent(name)}?slot=${S.slot}`);
   const r = j.row;
   const P = r.perf;
   title(r.name, `${P.grade} · ${SLOT_LABEL[j.slot]}`);
@@ -1110,7 +1114,7 @@ async function ptm() {
   view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:120px"></div>'.repeat(4) + '</div>';
   let j;
   try {
-    j = await api('/api/ptm');
+    j = await cachedApi('/api/ptm', 180000);
   } catch (e) {
     title('PTM', '');
     view.innerHTML = `<div class="card rise"><h3>PTMs could not be loaded</h3><p class="note">${esc(e.message)}</p></div>`;
@@ -1407,7 +1411,7 @@ async function fillPtmCards() {
   if (!els.length) return;
   els.forEach((el) => (el.dataset.done = 1));
   if (!ptmToday || Date.now() - ptmToday.at > 3 * 60 * 1000) {
-    const j = await api('/api/ptm').catch(() => null);
+    const j = await cachedApi('/api/ptm', 180000).catch(() => null);
     ptmToday = { at: Date.now(), list: j ? j.meetings.filter((m) => m.date === j.today) : null };
   }
   for (const el of els) {
@@ -1423,3 +1427,15 @@ async function fillPtmCards() {
   }
 }
 new MutationObserver(() => fillPtmCards()).observe(view, { childList: true, subtree: true });
+
+// ---------- Loading ahead ----------
+document.addEventListener('mouseover', (e) => {
+  const a = e.target.closest && e.target.closest('a[href^="#/tm/"], [data-go^="#/tm/"]');
+  if (!a || !S.slot) return;
+  const name = decodeURIComponent((a.getAttribute('href') || a.dataset.go).split('/')[2] || '');
+  if (name) cachedApi(`/api/tm/${encodeURIComponent(name)}?slot=${S.slot}`).catch(() => {});
+});
+document.addEventListener('mouseover', (e) => {
+  if (e.target.closest && e.target.closest('a[href="#/ptm"]')) cachedApi('/api/ptm', 180000).catch(() => {});
+});
+setTimeout(() => S.data && cachedApi('/api/ptm', 180000).catch(() => {}), 2500);

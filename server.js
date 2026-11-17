@@ -285,12 +285,17 @@ const mayLogin = (email) => {
   return G.allowed(email) && (!list.length || list.includes(email) || email === ownerEmail());
 };
 const isOwner = (req) => !GATED || Boolean(req.user && req.user === ownerEmail());
+let lastPull = 0;
 app.use(async (req, res, next) => {
   if (!req.path.startsWith('/api/') && !req.path.startsWith('/auth/')) return next();
   res.setHeader('Cache-Control', 'no-store');
   if (persist.enabled) {
     try {
-      await persist.pull();
+      // Reads reuse a check made in the last 10 seconds; anything that changes data always checks.
+      if (req.method !== 'GET' || req.path.startsWith('/api/cron/') || Date.now() - lastPull > 10000) {
+        await persist.pull();
+        lastPull = Date.now();
+      }
       loadCloudEnv();
     } catch (e) {
       return res.status(503).json({ error: e.message });
