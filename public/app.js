@@ -273,9 +273,12 @@ function tmCard(r, i, top = false) {
       <div class="name">${esc(r.name)}</div>
       <div class="grade">${esc(r.perf.grade)} · ${r.perf.students} students</div>
       <div class="mini-stats">
-        <div><b data-count="${open}">0</b><span>open items</span></div>
+        <div title="Talk time done today (calls + PTMs)"><b>${t.talk.minutes || 0}m</b><span>talk time done</span></div>
+        <div title="PTMs booked for today"><b data-ptmcard="${esc(r.name)}">…</b><span data-ptmsub>PTMs today</span></div>
         <div><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
-        <div><b>${S.slot === 'morning' ? t.talk.yesterday : t.talk.minutes}m</b><span>talk ${S.slot === 'morning' ? 'yest.' : 'today'}</span></div>
+        <div><b>${t.chapters ? t.chapters.pending : 0}</b><span>chapters missing</span></div>
+        <div><b>${t.approvals ? t.approvals.pending : 0}</b><span>approvals pending</span></div>
+        <div><b data-count="${open}">0</b><span>open items</span></div>
       </div>
       <div class="flags">${r.concerns.length ? r.concerns.slice(0, 3).map((c) => pill('critical', c)).join('') + (r.concerns.length > 3 ? `<span class="tag">+${r.concerns.length - 3}</span>` : '') : pill('clear', 'Nothing critical')}</div>
     </div></a>`;
@@ -1389,3 +1392,27 @@ document.addEventListener('click', (e) => {
   openPtmPanel(row.dataset.ptm);
 });
 window.addEventListener('hashchange', closePtmPanel);
+
+// ---------- PTMs today on the TM cards ----------
+let ptmToday = null;
+async function fillPtmCards() {
+  const els = $$('[data-ptmcard]:not([data-done])');
+  if (!els.length) return;
+  els.forEach((el) => (el.dataset.done = 1));
+  if (!ptmToday || Date.now() - ptmToday.at > 3 * 60 * 1000) {
+    const j = await api('/api/ptm').catch(() => null);
+    ptmToday = { at: Date.now(), list: j ? j.meetings.filter((m) => m.date === j.today) : null };
+  }
+  for (const el of els) {
+    if (!ptmToday.list) {
+      el.textContent = '—';
+      continue;
+    }
+    const mine = ptmToday.list.filter((m) => m.tm === el.dataset.ptmcard && m.status !== 'cancelled');
+    const done = mine.filter((m) => m.status === 'completed').length;
+    el.textContent = mine.length;
+    const sub = el.parentElement.querySelector('[data-ptmsub]');
+    if (sub) sub.textContent = mine.length ? `PTMs today · ${done} done` : 'PTMs today';
+  }
+}
+new MutationObserver(() => fillPtmCards()).observe(view, { childList: true, subtree: true });
