@@ -423,17 +423,32 @@ app.get('/api/board', async (req, res) => {
 
 // PTMs: today's schedule and each TM's meetings this month (and the last 30 days).
 const ptmCache = { at: 0, key: '', data: null };
+const ptmRanges = new Map();
+const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 app.get('/api/ptm', async (req, res) => {
   const today = istDate();
   const back = addDays(today, -29);
   const monthStart = `${today.slice(0, 8)}01`;
-  const from = monthStart < back ? monthStart : back;
-  const key = `${from}|${today}`;
+  // Default: this month or the last 30 days (whichever is longer), plus two weeks ahead.
+  let from = monthStart < back ? monthStart : back;
+  let to = addDays(today, 14);
+  const custom = isDay(req.query.from) || isDay(req.query.to);
+  if (isDay(req.query.from)) from = req.query.from;
+  if (isDay(req.query.to)) to = req.query.to;
+  if (to < from) [from, to] = [to, from];
+  if (from < addDays(today, -179)) from = addDays(today, -179);
+  if (to > addDays(today, 30)) to = addDays(today, 30);
+  const key = `${from}|${to}`;
+  const hit = custom ? ptmRanges.get(key) : ptmCache.key === key ? ptmCache : null;
+  let data;
   try {
-    if (req.query.fresh || ptmCache.key !== key || Date.now() - ptmCache.at > 3 * 60 * 1000) {
-      ptmCache.data = await ptmMeetings(from, today);
-      ptmCache.at = Date.now();
-      ptmCache.key = key;
+    if (hit && !req.query.fresh && Date.now() - hit.at < 3 * 60 * 1000) data = hit;
+    else {
+      data = { at: Date.now(), key, data: await ptmMeetings(from, to) };
+      if (custom) {
+        ptmRanges.set(key, data);
+        if (ptmRanges.size > 12) ptmRanges.delete(ptmRanges.keys().next().value);
+      } else Object.assign(ptmCache, data);
     }
   } catch (e) {
     return res.status(502).json({ error: `Could not load PTMs from Lighthouse: ${e.message}` });
@@ -446,10 +461,11 @@ app.get('/api/ptm', async (req, res) => {
   res.json({
     today,
     from,
+    to,
     monthStart,
-    fetchedAt: new Date(ptmCache.at).toISOString(),
+    fetchedAt: new Date(data.at).toISOString(),
     team: tms.map((t) => t.name),
-    meetings: ptmCache.data.map((m) => ({ ...m, tm: tmOf(m.host) })),
+    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host) })),
   });
 });
 
@@ -486,7 +502,7 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     error = e.message;
   }
   // Parent time is only in the team history; add it where we have it.
-  const seen = new Map(((ptmCache && ptmCache.data) || []).map((m) => [m.id, m]));
+  const seen = new Map([...ptmRanges.values(), ptmCache].flatMap((r) => (r && r.data) || []).map((m) => [m.id, m]));
   ptms = ptms
     .map((m) => {
       const h = seen.get(m.id);

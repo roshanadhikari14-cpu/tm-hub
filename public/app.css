@@ -477,3 +477,12 @@ a.lh .ext { font-size: 0.8em; margin-left: 3px; opacity: 0.55; }
 .dbar { height: 6px; background: #eceef6; border-radius: 99px; overflow: hidden; margin-top: 5px; }
 .dbar i { display: block; height: 100%; background: var(--teal-2); border-radius: 99px; }
 @media (max-width: 560px) { .dgrid { grid-template-columns: 1fr; } .drawer-body { padding: 14px 14px 24px; } }
+
+/* PTM date filter */
+.ptm-filter { display: grid; gap: 12px; }
+.ptm-dates { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.ptm-dates label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.ptm-dates input, .ptm-dates select { font: inherit; font-size: 13.5px; padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(51, 55, 158, 0.22); background: #fff; color: var(--ink); }
+.ptm-dates input:focus, .ptm-dates select:focus { outline: 2px solid var(--teal-3); outline-offset: 1px; }
+.ptm-sum { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; }
+#ptmTabs .count, #ptmPresets .count { margin-left: 6px; }
