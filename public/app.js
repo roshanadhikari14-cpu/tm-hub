@@ -758,6 +758,13 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
+    <div class="card rise" style="margin-bottom:18px"><h3>📄 PTM reports</h3><div class="sub">“Create PTM report” on the PTM tab writes the plan with Claude (model claude-opus-5-5) and saves the PDF in your Drive folder.</div>
+      <div class="ai-grid">
+        <div><small>Claude API key</small><b>${st.ai ? '✓ Saved' : 'Not added yet'}</b><input id="aiKey" type="password" autocomplete="off" placeholder="${st.ai ? 'Paste a new key to replace it' : 'Paste the key (starts with sk-ant-)'}"></div>
+        <div><small>Drive folder</small><b>${st.reportFolder ? '<a class="lh" target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/' + esc(st.reportFolder) + '">Student Report Doc<span class="ext">↗</span></a>' : 'Not set'}</b><input id="aiFolder" placeholder="Paste a different folder link (optional)"></div>
+      </div>
+      <div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-primary" id="aiSave">Save</button></div>
+      <p class="note" style="margin-top:8px">Saving to Drive uses the Google account connected for email. If you connected it before Drive was added, connect it again below and tick Google Drive on the Google screen.</p></div>
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
@@ -1230,6 +1237,7 @@ async function ptm() {
   const maxDay = isoShift(j.today, 30);
   view.innerHTML = `
     <div class="grid g-kpi">${tiles}</div>
+    ${reportCard()}
     <div class="section-title"><h2>Today’s PTM schedule</h2><span>${esc(dayName)} · ${lhLink(CRM + '/parent-meetings', 'Open in Lighthouse')}</span></div>
     <div class="card rise">${today.length ? ptmRows(today, false) : '<div class="empty">No PTMs booked for today yet. New bookings show up here when you open this page again.</div>'}</div>
     <div class="section-title"><h2>PTMs taken by each TM</h2><span>Done = held and marked done in Lighthouse. Click a TM to see their PTMs below.</span></div>
@@ -1331,6 +1339,7 @@ async function openPtmPanel(meetingId) {
     `<a href="${esc(j.crm)}?activeTab=concernsAndRequests" target="_blank" rel="noopener">Concerns ↗</a>`,
     s.schoolId ? `<a href="https://lighthouse.uprio.com/school-planning/v2/${esc(s.schoolId)}?grade=${esc(s.grade || '')}" target="_blank" rel="noopener">School planning ↗</a>` : '',
     `<a href="${esc(CRM)}/parent-meetings" target="_blank" rel="noopener">Parent Meetings ↗</a>`,
+    `<a href="#" data-report="${esc(m.studentId)}" class="rp-link">📄 Create PTM report</a>`,
   ].join('');
   $('.drawer-head', dr).insertAdjacentHTML(
     'beforeend',
@@ -1439,3 +1448,134 @@ document.addEventListener('mouseover', (e) => {
   if (e.target.closest && e.target.closest('a[href="#/ptm"]')) cachedApi('/api/ptm', 180000).catch(() => {});
 });
 setTimeout(() => S.data && cachedApi('/api/ptm', 180000).catch(() => {}), 2500);
+
+// ---------- Create PTM report ----------
+// Runs the four server steps one after another and shows progress. The finished PDF is saved to Google Drive.
+const reportMonths = () => {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const fmt = (d) => d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const list = [fmt(now), fmt(next)];
+  return { list, pick: now.getDate() >= 15 ? list[1] : list[0] };
+};
+function reportCard() {
+  const m = reportMonths();
+  const st = S.status || {};
+  return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">A 3-page plan for a one-to-one PTM, written from the student’s Lighthouse reports (with photos of their own work), saved as a PDF in your Drive folder.</div>
+      ${st.ai === false ? '<div class="note" style="color:var(--amber);margin-top:6px">Add the Claude API key in <a href="#/settings"><b>Settings → PTM reports</b></a> first.</div>' : ''}</div>
+    <div class="rc-r"><input id="rpId" inputmode="numeric" placeholder="Student ID, e.g. 33682"><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <button class="btn btn-primary" id="rpGo">Create report</button></div></div>`;
+}
+const RSTEPS = ['Gathering Lighthouse data', 'Reading the reports', 'Writing the plan with AI', 'Making the PDF and saving to Drive'];
+let reportBusy = false;
+async function createPtmReport(studentId, month) {
+  if (reportBusy) return toast('A report is already being made. Please wait for it to finish.', 'err');
+  reportBusy = true;
+  const m = $('#modal');
+  $('#modalCard').innerHTML = `<h3>📄 PTM report</h3><div class="note" id="rpWho">Student ${esc(studentId)} · ${esc(month)}</div>
+    <div class="rp-bar"><i id="rpBar"></i></div><div class="rp-meta"><span id="rpPct">0%</span><span id="rpTime">0s</span></div>
+    <ol class="rp-steps">${RSTEPS.map((s, i) => `<li data-i="${i}"><span class="dot"></span><span class="t">${esc(s)}</span><small></small></li>`).join('')}</ol>
+    <div id="rpOut"></div><div class="actions"><button class="btn btn-ghost" id="rpClose" disabled>Close</button></div>`;
+  m.hidden = false;
+  const t0 = Date.now();
+  let pct = 0, creep = null;
+  const setPct = (p) => {
+    pct = Math.max(pct, Math.min(100, p));
+    $('#rpBar').style.width = pct + '%';
+    $('#rpPct').textContent = Math.round(pct) + '%';
+  };
+  const clock = setInterval(() => ($('#rpTime').textContent = Math.round((Date.now() - t0) / 1000) + 's'), 500);
+  const step = (i, state, note) => {
+    const li = $(`.rp-steps li[data-i="${i}"]`);
+    li.className = state;
+    if (note !== undefined) $('small', li).textContent = note;
+  };
+  // While a long step runs, the bar creeps towards its end so it never looks stuck.
+  const creepTo = (end, secs) => {
+    clearInterval(creep);
+    const start = pct, ts = Date.now();
+    creep = setInterval(() => setPct(start + (end - start) * (1 - Math.exp(-(Date.now() - ts) / (secs * 1000)))), 400);
+  };
+  const post = (u, body) => api(u, { body });
+  try {
+    step(0, 'run');
+    creepTo(10, 8);
+    const ctx = await post('/api/ptm-report/gather', { studentId });
+    $('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month}`;
+    step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${ctx.monthly ? ' + monthly report' : ''}`);
+    setPct(10);
+    step(1, 'run');
+    const files = [...(ctx.monthly ? [{ item: ctx.monthly, kind: 'monthly' }] : []), ...ctx.evals.map((e, i) => ({ item: e, kind: 'eval', tag: (e.subject === 'Maths' ? 'M' : 'S') + (i + 1) + '.' }))];
+    let monthlyText = '';
+    let candidates = [];
+    for (const [i, f] of files.entries()) {
+      step(1, 'run', `${i + 1} of ${files.length}`);
+      creepTo(10 + (35 * (i + 1)) / files.length, 6);
+      const r = await post('/api/ptm-report/read', f);
+      if (f.kind === 'monthly') monthlyText = r.text;
+      else candidates = candidates.concat(r.candidates);
+      setPct(10 + (35 * (i + 1)) / files.length);
+    }
+    step(1, 'done', `${candidates.length} answer photos with mistakes`);
+    step(2, 'run', 'usually 1–2 minutes');
+    creepTo(84, 70);
+    const w = await post('/api/ptm-report/write', { ctx, monthlyText, candidates, month });
+    step(2, 'done', `${w.plan.mistakes.length} mistakes picked`);
+    setPct(85);
+    step(3, 'run');
+    creepTo(99, 15);
+    const photos = Object.fromEntries(candidates.filter((c) => w.plan.mistakes.some((x) => x.photo === c.id)).map((c) => [c.id, c.photo]));
+    const out = await post('/api/ptm-report/publish', { ctx, plan: w.plan, photos, month });
+    clearInterval(creep);
+    setPct(100);
+    step(3, 'done', 'saved');
+    $('#rpOut').innerHTML = `<div class="rp-done">✅ Saved to Drive: <b>${esc(out.name)}</b><br><a class="btn btn-primary" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Google Drive</a></div>`;
+    toast('PTM report saved to Drive', 'ok');
+  } catch (e) {
+    clearInterval(creep);
+    const i = [...$$('.rp-steps li')].findIndex((li) => li.className === 'run');
+    if (i >= 0) step(i, 'fail', '');
+    $('#rpOut').innerHTML = `<div class="rp-err">${esc(e.message)}</div><div class="actions" style="margin-top:8px"><button class="btn btn-ghost" id="rpRetry">Try again</button></div>`;
+    $('#rpRetry').onclick = () => {
+      reportBusy = false;
+      createPtmReport(studentId, month);
+    };
+  } finally {
+    clearInterval(clock);
+    reportBusy = false;
+    $('#rpClose').disabled = false;
+    $('#rpClose').onclick = () => (m.hidden = true);
+  }
+}
+document.addEventListener('click', (e) => {
+  const go = e.target.closest && e.target.closest('#rpGo, [data-report]');
+  if (!go) return;
+  e.preventDefault();
+  if (go.id === 'rpGo') {
+    const id = ($('#rpId').value || '').trim();
+    if (!/^\d+$/.test(id)) return toast('Enter the student ID (numbers only).', 'err');
+    createPtmReport(id, $('#rpMonth').value);
+  } else {
+    closePtmPanel();
+    createPtmReport(go.dataset.report, reportMonths().pick);
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'rpId') $('#rpGo').click();
+});
+// Settings: Claude API key and Drive folder.
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest || !e.target.closest('#aiSave')) return;
+  const key = $('#aiKey').value.trim();
+  const folder = $('#aiFolder').value.trim();
+  if (!key && !folder) return toast('Paste the API key or the folder link first.', 'err');
+  try {
+    const j = await api('/api/ai-key', { body: { key, folder } });
+    S.status = { ...S.status, ai: j.ai, reportFolder: j.reportFolder };
+    $('#aiKey').value = '';
+    toast('Saved', 'ok');
+    route(true);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+});

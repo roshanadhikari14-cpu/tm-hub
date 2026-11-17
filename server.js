@@ -56,6 +56,8 @@ const DEFAULTS = {
   sendTeam: true,
   last: { morning: null, progress: null, closure: null, baseline: null },
   log: [],
+  // Google Drive folder "Student Report Doc" where PTM reports are saved.
+  reportFolder: '1l42P9y5HovlOAsa0wh1JvrjMO4GiMY9W',
 };
 function loadConfig() {
   const c = readJson(CONFIG, null);
@@ -75,7 +77,7 @@ const saveConfig = (c) => writeJson(CONFIG, c);
 // On Vercel there is no .env file to write, so settings saved from the
 // Settings page go into the data folder (and from there to the database).
 const CLOUD_ENV = path.join(DATA, 'env.json');
-const CLOUD_KEYS = ['LIGHTHOUSE_AUTH', 'LIGHTHOUSE_COOKIE', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'FROM_NAME', 'FROM_EMAIL'];
+const CLOUD_KEYS = ['ANTHROPIC_API_KEY', 'LIGHTHOUSE_AUTH', 'LIGHTHOUSE_COOKIE', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'FROM_NAME', 'FROM_EMAIL'];
 function loadCloudEnv() {
   const e = readJson(CLOUD_ENV, {});
   for (const k of CLOUD_KEYS)
@@ -274,7 +276,7 @@ if (!CLOUD) setInterval(() => {
 // ---------- Routes ----------
 
 const app = express();
-app.use(express.json({ limit: '3mb' }));
+app.use(express.json({ limit: '6mb' }));
 
 // ---------- Login gate and cloud storage ----------
 // On the internet every data route needs a Google login; on your own PC it does not.
@@ -322,7 +324,7 @@ app.use(async (req, res, next) => {
   next();
 });
 // Sending mail and changing settings is for the owner only.
-app.use(['/api/send', '/api/config', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout'], (req, res, next) =>
+app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout'], (req, res, next) =>
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 app.use(express.static(path.join(ROOT, 'public')));
@@ -338,6 +340,8 @@ const status = (req) => {
     user: req ? req.user : null,
     owner: req ? isOwner(req) : true,
     lighthouse: Boolean(process.env.LIGHTHOUSE_AUTH || process.env.LIGHTHOUSE_COOKIE),
+    ai: Boolean(process.env.ANTHROPIC_API_KEY),
+    reportFolder: loadConfig().reportFolder,
     email: emailConfigured(),
     sender: senderAddr() || null,
     smtp: { host: smtpHost(), port: smtpPort(), user: process.env.SMTP_USER || '', fromEmail: process.env.FROM_EMAIL || '', ready: smtpConfigured() },
@@ -520,6 +524,36 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     })
     .sort((a, b) => String(b.start).localeCompare(String(a.start)));
   res.json({ id, tm: tmName, student, tasks, ptms, error, crm: link });
+});
+
+// ---------- Create PTM report (4 steps, run one after another by the browser) ----------
+const PR = require('./lib/ptmReport');
+const reportStep = (fn) => async (req, res) => {
+  try {
+    res.json(await fn(req.body || {}));
+  } catch (e) {
+    console.log('[ptm-report]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+app.post('/api/ptm-report/gather', reportStep((b) => PR.gather(b.studentId, loadLatest())));
+app.post('/api/ptm-report/read', reportStep((b) => PR.read(b.item, b.kind, b.tag)));
+app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month)));
+app.post('/api/ptm-report/publish', reportStep((b) => PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.folder || loadConfig().reportFolder)));
+// The Claude API key for report writing (pasted by the owner in Settings), and the Drive folder.
+app.post('/api/ai-key', (req, res) => {
+  const key = String((req.body || {}).key || '').trim();
+  const folder = String((req.body || {}).folder || '').trim();
+  if (key) {
+    if (!/^sk-ant-/.test(key)) return res.status(400).json({ error: 'That does not look like an Anthropic API key (it starts with sk-ant-).' });
+    saveEnv('ANTHROPIC_API_KEY', key);
+  }
+  if (folder) {
+    const id = (folder.match(/folders\/([\w-]{10,})/) || [])[1] || (/^[\w-]{10,}$/.test(folder) ? folder : '');
+    if (!id) return res.status(400).json({ error: 'Paste the Google Drive folder link.' });
+    saveConfig({ ...loadConfig(), reportFolder: id });
+  }
+  res.json({ ok: true, ai: Boolean(process.env.ANTHROPIC_API_KEY), reportFolder: loadConfig().reportFolder });
 });
 
 app.get('/api/tm/:name', (req, res) => {

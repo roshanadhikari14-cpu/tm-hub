@@ -490,3 +490,29 @@ a.lh .ext { font-size: 0.8em; margin-left: 3px; opacity: 0.55; }
 /* Score weights on the scorecard */
 .metric-row .wt { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--mint); color: var(--teal); margin-left: 4px; vertical-align: 1px; }
 .metric-row.tier-gap { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(51, 55, 158, 0.18); }
+
+/* PTM report */
+.report-card { display: flex; gap: 18px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 6px; background: linear-gradient(120deg, #fff, var(--mint)); }
+.report-card .rc-l { flex: 1 1 320px; }
+.report-card .rc-r { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.report-card input, .report-card select, .ai-grid input { font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; border: 1px solid rgba(51, 55, 158, 0.22); background: #fff; }
+.report-card input { width: 190px; }
+.rp-bar { height: 10px; border-radius: 99px; background: #eceef6; overflow: hidden; margin: 14px 0 4px; }
+.rp-bar i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--teal), var(--teal-3)); transition: width 0.4s ease; }
+.rp-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.rp-steps { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+.rp-steps li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-3); }
+.rp-steps li small { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.rp-steps .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #cfd3e6; flex: none; }
+.rp-steps li.run { color: var(--ink); font-weight: 600; }
+.rp-steps li.run .dot { border-color: var(--teal); border-top-color: transparent; animation: spin 0.8s linear infinite; }
+.rp-steps li.done { color: var(--ink); }
+.rp-steps li.done .dot { background: var(--green); border-color: var(--green); }
+.rp-steps li.fail .dot { background: var(--red); border-color: var(--red); }
+.rp-done { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--green-bg); font-size: 14px; line-height: 1.7; }
+.rp-done .btn { margin-top: 8px; }
+.rp-err { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--red-bg); color: var(--red); font-size: 14px; }
+.ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+.ai-grid > div { display: grid; gap: 6px; }
+.ai-grid small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+@media (max-width: 700px) { .ai-grid { grid-template-columns: 1fr; } .report-card input { width: 100%; } }

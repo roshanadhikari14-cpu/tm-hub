@@ -7,8 +7,9 @@
   ],
   "functions": {
     "api/index.js": {
-      "maxDuration": 60,
-      "includeFiles": "team.json"
+      "maxDuration": 300,
+      "includeFiles": "{team.json,node_modules/@sparticuz/chromium/bin/**,node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs}",
+      "memory": 2048
     }
   },
   "rewrites": [
