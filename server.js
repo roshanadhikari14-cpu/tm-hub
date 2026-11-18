@@ -539,7 +539,7 @@ const reportStep = (fn) => async (req, res) => {
 app.post('/api/ptm-report/gather', reportStep((b) => PR.gather(b.studentId, loadLatest())));
 app.post('/api/ptm-report/read', reportStep((b) => PR.read(b.item, b.kind, b.tag)));
 app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month)));
-app.post('/api/ptm-report/publish', reportStep((b) => PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.folder || loadConfig().reportFolder)));
+app.post('/api/ptm-report/publish', reportStep((b) => PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.drive === false ? null : b.folder || loadConfig().reportFolder)));
 // Read-only check that Google Drive is reachable and the reports folder can be opened.
 app.get('/api/drive-check', async (req, res) => {
   try {

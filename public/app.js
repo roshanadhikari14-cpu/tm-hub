@@ -211,7 +211,7 @@ $('#refreshBtn').onclick = async () => {
 };
 
 // ---------- router ----------
-const routes = { dashboard, team, tm, tasks, ptm, reports, schedule, settings };
+const routes = { dashboard, team, tm, tasks, ptm, studentreport, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
@@ -248,6 +248,12 @@ function noData() {
   view.innerHTML = `<div class="card rise"><h3>No Lighthouse data yet</h3><p class="note">${
     st.lighthouse ? 'Click <b>Refresh</b> at the top right to load today’s tasks.' : 'Connect Lighthouse in <a href="#/settings"><b>Settings</b></a>, then click Refresh.'
   }${st.refreshError ? `<br><span style="color:var(--red)">${esc(st.refreshError)}</span>` : ''}</p></div>`;
+}
+
+// ---------- Student report (any signed-in TM) ----------
+async function studentreport() {
+  title('Student report', 'PTM plan PDF from a student ID');
+  view.innerHTML = reportCard() + '<div class="card rise"><h3>How it works</h3><ol class="note" style="line-height:1.8;padding-left:18px"><li>Type the student ID (the number in the Lighthouse student link).</li><li>Pick the month the plan is for and click <b>Create report</b>.</li><li>Wait about 30 seconds. The PDF downloads by itself; you can also click <b>Download PDF</b>.</li></ol></div>';
 }
 
 // ---------- Dashboard ----------
@@ -758,7 +764,7 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
-    <div class="card rise" style="margin-bottom:18px"><h3>📄 PTM reports</h3><div class="sub">“Create PTM report” on the PTM tab writes the plan with Claude (model claude-opus-5-5) and saves the PDF in your Drive folder.</div>
+    <div class="card rise" style="margin-bottom:18px"><h3>📄 PTM reports</h3><div class="sub">Student reports are free and need no key. The Claude key below is optional (nicer wording); the Drive folder is an optional copy for the owner.</div>
       <div class="ai-grid">
         <div><small>Claude API key</small><b>${st.ai ? '✓ Saved' : 'Not added yet'}</b><input id="aiKey" type="password" autocomplete="off" placeholder="${st.ai ? 'Paste a new key to replace it' : 'Paste the key (starts with sk-ant-)'}"></div>
         <div><small>Drive folder</small><b>${st.reportFolder ? '<a class="lh" target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/' + esc(st.reportFolder) + '">Student Report Doc<span class="ext">↗</span></a>' : 'Not set'}</b><input id="aiFolder" placeholder="Paste a different folder link (optional)"></div>
@@ -1461,12 +1467,11 @@ const reportMonths = () => {
 function reportCard() {
   const m = reportMonths();
   const st = S.status || {};
-  return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">A 3-page plan for a one-to-one PTM, written from the student’s Lighthouse reports (with photos of their own work), saved as a PDF in your Drive folder.</div>
-      ${st.ai === false ? '<div class="note" style="color:var(--amber);margin-top:6px">Add the Claude API key in <a href="#/settings"><b>Settings → PTM reports</b></a> first.</div>' : ''}</div>
+  return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">Type a student ID and get a 3-page plan for the one-to-one PTM, built from the student’s Lighthouse reports (with photos of their own work). It downloads as a PDF. Free, takes about 30 seconds.</div></div>
     <div class="rc-r"><input id="rpId" inputmode="numeric" placeholder="Student ID, e.g. 33682"><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <button class="btn btn-primary" id="rpGo">Create report</button></div></div>`;
 }
-const RSTEPS = ['Gathering Lighthouse data', 'Reading the reports', 'Writing the plan with AI', 'Making the PDF and saving to Drive'];
+const RSTEPS = ['Gathering Lighthouse data', 'Reading the reports', 'Writing the plan', 'Making the PDF'];
 let reportBusy = false;
 async function createPtmReport(studentId, month) {
   if (reportBusy) return toast('A report is already being made. Please wait for it to finish.', 'err');
@@ -1517,20 +1522,25 @@ async function createPtmReport(studentId, month) {
       setPct(10 + (35 * (i + 1)) / files.length);
     }
     step(1, 'done', `${candidates.length} answer photos with mistakes`);
-    step(2, 'run', 'usually 1–2 minutes');
-    creepTo(84, 70);
-    const w = await post('/api/ptm-report/write', { ctx, monthlyText, candidates, month });
+    step(2, 'run');
+    creepTo(84, 10);
+    const w = await post('/api/ptm-report/write', { ctx, monthlyText, candidates: S.status && S.status.ai ? candidates : candidates.map((c) => ({ ...c, photo: '' })), month });
     step(2, 'done', `${w.plan.mistakes.length} mistakes picked`);
     setPct(85);
     step(3, 'run');
     creepTo(99, 15);
     const photos = Object.fromEntries(candidates.filter((c) => w.plan.mistakes.some((x) => x.photo === c.id)).map((c) => [c.id, c.photo]));
-    const out = await post('/api/ptm-report/publish', { ctx, plan: w.plan, photos, month });
+    const out = await post('/api/ptm-report/publish', { ctx, plan: w.plan, photos, month, drive: !!(S.status && S.status.owner && S.status.reportFolder) });
     clearInterval(creep);
     setPct(100);
-    step(3, 'done', 'saved');
-    $('#rpOut').innerHTML = `<div class="rp-done">✅ Saved to Drive: <b>${esc(out.name)}</b><br><a class="btn btn-primary" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Google Drive</a></div>`;
-    toast('PTM report saved to Drive', 'ok');
+    step(3, 'done', 'ready');
+    const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(out.pdf), (c) => c.charCodeAt(0))], { type: 'application/pdf' }));
+    $('#rpOut').innerHTML = `<div class="rp-done">✅ Report ready: <b>${esc(out.name)}</b><br><a class="btn btn-primary" href="${url}" download="${esc(out.name)}">Download PDF</a>${out.link ? ` <a class="btn btn-ghost" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}</div>`;
+    const dl = document.createElement('a');
+    dl.href = url;
+    dl.download = out.name;
+    dl.click();
+    toast('PTM report ready', 'ok');
   } catch (e) {
     clearInterval(creep);
     const i = [...$$('.rp-steps li')].findIndex((li) => li.className === 'run');
