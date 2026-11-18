@@ -483,7 +483,7 @@ async function tm([name, focus]) {
       const m = P.metrics[t.key];
       const v = m.value == null ? 0 : m.value;
       const cls = v >= 70 ? '' : v >= 40 ? 'amber' : 'red';
-      const share = Math.round((100 * (t.weight || 0)) / wTotal);
+      const share = Math.round((1000 * (t.weight || 0)) / wTotal) / 10;
       const tier = i && (scoreList[i - 1].weight || 0) !== (t.weight || 0) ? ' tier-gap' : '';
       return `<div class="metric-row${tier}"><div class="nm">${t.icon} ${esc(t.short)} <span class="wt" title="Share of the score">${share}%</span><small>${esc(m.label)}</small></div><div class="prog ${cls}"><i data-w="${v}"></i></div><div class="v">${m.value == null ? '—' : v}</div></div>`;
     })
