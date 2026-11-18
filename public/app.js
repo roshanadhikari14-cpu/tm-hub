@@ -1478,7 +1478,7 @@ async function createPtmReport(studentId, month, win) {
   if (reportBusy) return toast('A report is already being made. Please wait for it to finish.', 'err');
   reportBusy = true;
   const m = $('#modal');
-  $('#modalCard').innerHTML = `<h3>📄 PTM report</h3><div class="note" id="rpWho">Student ${esc(studentId)} · ${esc(month)}</div>
+  $('#modalCard').innerHTML = `<h3>📄 PTM report</h3><div class="note" id="rpWho">Student ${esc(studentId)} · ${esc(month)} · ${win === "all" ? "since joining" : "last " + win + " days"}</div>
     <div class="rp-bar"><i id="rpBar"></i></div><div class="rp-meta"><span id="rpPct">0%</span><span id="rpTime">0s</span></div>
     <ol class="rp-steps">${RSTEPS.map((s, i) => `<li data-i="${i}"><span class="dot"></span><span class="t">${esc(s)}</span><small></small></li>`).join('')}</ol>
     <div id="rpOut"></div><div class="actions"><button class="btn btn-ghost" id="rpClose" disabled>Close</button></div>`;
@@ -1507,7 +1507,7 @@ async function createPtmReport(studentId, month, win) {
     step(0, 'run');
     creepTo(10, 8);
     const ctx = await post('/api/ptm-report/gather', { studentId, window: win });
-    $('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month}`;
+    $('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month} · ${win === "all" ? "since joining" : "last " + win + " days"}`;
     step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${ctx.monthly ? ' + monthly report' : ''}`);
     setPct(10);
     step(1, 'run');
@@ -1568,7 +1568,8 @@ document.addEventListener('click', (e) => {
     createPtmReport(id, $('#rpMonth').value, $('#rpWin').value);
   } else {
     closePtmPanel();
-    createPtmReport(go.dataset.report, reportMonths().pick);
+    const w = $('#rpWin');
+    createPtmReport(go.dataset.report, ($('#rpMonth') && $('#rpMonth').value) || reportMonths().pick, w ? w.value : '30');
   }
 });
 document.addEventListener('keydown', (e) => {
