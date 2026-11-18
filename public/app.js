@@ -1468,12 +1468,13 @@ function reportCard() {
   const m = reportMonths();
   const st = S.status || {};
   return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">Type a student ID and get a 3-page plan for the one-to-one PTM, built from the student’s Lighthouse reports (with photos of their own work). It downloads as a PDF. Free, takes about 30 seconds.</div></div>
-    <div class="rc-r"><input id="rpId" inputmode="numeric" placeholder="Student ID, e.g. 33682"><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    <div class="rc-r"><input id="rpId" inputmode="numeric" placeholder="Student ID, e.g. 33682"><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><select id="rpWin" title="How far back to read"><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option><option value="all">Since joining</option></select>
       <button class="btn btn-primary" id="rpGo">Create report</button></div></div>`;
 }
 const RSTEPS = ['Gathering Lighthouse data', 'Reading the reports', 'Writing the plan', 'Making the PDF'];
 let reportBusy = false;
-async function createPtmReport(studentId, month) {
+async function createPtmReport(studentId, month, win) {
+  win = win || '30';
   if (reportBusy) return toast('A report is already being made. Please wait for it to finish.', 'err');
   reportBusy = true;
   const m = $('#modal');
@@ -1505,19 +1506,19 @@ async function createPtmReport(studentId, month) {
   try {
     step(0, 'run');
     creepTo(10, 8);
-    const ctx = await post('/api/ptm-report/gather', { studentId });
+    const ctx = await post('/api/ptm-report/gather', { studentId, window: win });
     $('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month}`;
     step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${ctx.monthly ? ' + monthly report' : ''}`);
     setPct(10);
     step(1, 'run');
-    const files = [...(ctx.monthly ? [{ item: ctx.monthly, kind: 'monthly' }] : []), ...ctx.evals.map((e, i) => ({ item: e, kind: 'eval', tag: (e.subject === 'Maths' ? 'M' : 'S') + (i + 1) + '.' }))];
+    const files = [...(ctx.monthly ? [{ item: ctx.monthly, kind: 'monthly' }] : []), ...(ctx.earlier || []).map((x) => ({ item: x, kind: 'monthly', older: true })), ...ctx.evals.map((e, i) => ({ item: e, kind: 'eval', tag: (e.subject === 'Maths' ? 'M' : 'S') + (i + 1) + '.' }))];
     let monthlyText = '';
     let candidates = [];
     for (const [i, f] of files.entries()) {
       step(1, 'run', `${i + 1} of ${files.length}`);
       creepTo(10 + (35 * (i + 1)) / files.length, 6);
-      const r = await post('/api/ptm-report/read', f);
-      if (f.kind === 'monthly') monthlyText = r.text;
+      const r = await post('/api/ptm-report/read', { item: f.item, kind: f.kind, tag: f.tag });
+      if (f.kind === 'monthly') monthlyText += (monthlyText ? '=== EARLIER CYCLE ===' : '') + r.text;
       else candidates = candidates.concat(r.candidates);
       setPct(10 + (35 * (i + 1)) / files.length);
     }
@@ -1548,7 +1549,7 @@ async function createPtmReport(studentId, month) {
     $('#rpOut').innerHTML = `<div class="rp-err">${esc(e.message)}</div><div class="actions" style="margin-top:8px"><button class="btn btn-ghost" id="rpRetry">Try again</button></div>`;
     $('#rpRetry').onclick = () => {
       reportBusy = false;
-      createPtmReport(studentId, month);
+      createPtmReport(studentId, month, win);
     };
   } finally {
     clearInterval(clock);
@@ -1564,7 +1565,7 @@ document.addEventListener('click', (e) => {
   if (go.id === 'rpGo') {
     const id = ($('#rpId').value || '').trim();
     if (!/^\d+$/.test(id)) return toast('Enter the student ID (numbers only).', 'err');
-    createPtmReport(id, $('#rpMonth').value);
+    createPtmReport(id, $('#rpMonth').value, $('#rpWin').value);
   } else {
     closePtmPanel();
     createPtmReport(go.dataset.report, reportMonths().pick);
