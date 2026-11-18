@@ -1457,13 +1457,13 @@ setTimeout(() => S.data && cachedApi('/api/ptm', 180000).catch(() => {}), 2500);
 
 // ---------- Create PTM report ----------
 // Runs the four server steps one after another and shows progress. The finished PDF is saved to Google Drive.
-const reportMonths = () => {
+function reportMonths() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const fmt = (d) => d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const list = [fmt(now), fmt(next)];
   return { list, pick: now.getDate() >= 15 ? list[1] : list[0] };
-};
+}
 function reportCard() {
   const m = reportMonths();
   const st = S.status || {};
