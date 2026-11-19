@@ -226,11 +226,6 @@ html { scroll-behavior: smooth; }
 .tbl tbody tr { transition: background 0.25s, box-shadow 0.25s; }
 .tbl tbody tr:hover { box-shadow: inset 3px 0 0 var(--gold); }
 
-/* progress bars shimmer */
-.prog > i { position: relative; overflow: hidden; }
-.prog > i::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); animation: sheen 3.2s ease-in-out 1s infinite; }
-@keyframes sheen { 60%, 100% { transform: translateX(100%); } }
-
 /* tabs/pills and avatars */
 .pill { transition: transform 0.25s var(--ease); }
 .pill:hover { transform: translateY(-1px); }
@@ -241,9 +236,28 @@ html { scroll-behavior: smooth; }
 [data-cu] { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
-  .view, .bg-orbs, .hero, .brand-mark, .prog > i::after, .hero-art path.ln, .hero-art path.fill, .hero-art circle.dot { animation: none !important; }
+  .view, .bg-orbs, .hero, .brand-mark, .hero-art path.ln, .hero-art path.fill, .hero-art circle.dot { animation: none !important; }
   .hero-art path.ln { stroke-dashoffset: 0; }
   .hero-art path.fill, .hero-art circle.dot { opacity: 1; }
   .fx-on .rv { opacity: 1; translate: 0 0; transition: none; }
 }
 .hero-art { -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 38%); mask-image: linear-gradient(90deg, transparent 0%, #000 38%); }
+
+/* ---------- Lighthouse V2 logo (the real Lighthouse mark, animated) ---------- */
+.brand-mark { width: 44px; height: 44px; border-radius: 11px; background: #000; padding: 0; overflow: hidden; display: grid; place-items: center; animation: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 8px 22px -8px rgba(0, 191, 186, 0.55); position: relative; }
+.brand-mark svg.lh-logo { width: 100%; height: 100%; display: block; fill: none; stroke: none; stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+.brand-mark::after { content: ''; position: absolute; inset: -30%; border-radius: 50%; pointer-events: none; opacity: 0.6;
+  background: conic-gradient(from 0deg, transparent 0 300deg, rgba(0, 229, 0, 0.45) 340deg, transparent 360deg); animation: beam 5s linear infinite; mix-blend-mode: screen; }
+@keyframes beam { to { transform: rotate(360deg); } }
+.lh-b1, .lh-b2, .lh-b3 { transform-box: fill-box; transform-origin: center; opacity: 0; }
+.lh-b1 { animation: lhIn 0.7s var(--ease) 0.15s forwards, lhPulse 4.6s ease-in-out 1.4s infinite; }
+.lh-b2 { animation: lhIn 0.7s var(--ease) 0.4s forwards, lhPulse 4.6s ease-in-out 1.65s infinite; }
+.lh-b3 { animation: lhIn 0.7s var(--ease) 0.65s forwards, lhPulse 4.6s ease-in-out 1.9s infinite; }
+@keyframes lhIn { from { opacity: 0; transform: translateX(-9px) scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes lhPulse { 0%, 70%, 100% { filter: none; } 82% { filter: brightness(1.5) drop-shadow(0 0 2.5px currentColor); } }
+.lh-sweep { animation: lhSweep 4.6s ease-in-out 1.2s infinite; }
+@keyframes lhSweep { 0% { transform: skewX(-18deg) translateX(0); } 45%, 100% { transform: skewX(-18deg) translateX(70px); } }
+.brand-text b { display: inline-flex; align-items: baseline; gap: 6px; }
+.brand-text .v2 { font-family: 'Plus Jakarta Sans', sans-serif; font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: #04210a; background: linear-gradient(135deg, #00e500, #00bfba); padding: 2px 6px; border-radius: 6px; transform: translateY(-3px); box-shadow: 0 0 14px -2px rgba(0, 229, 0, 0.7); }
+@media (prefers-reduced-motion: reduce) { .brand-mark::after, .lh-sweep { animation: none !important; } .lh-b1, .lh-b2, .lh-b3 { animation: none !important; opacity: 1; } }

@@ -39,7 +39,7 @@ function showLogin(j) {
   if ($('#loginScreen')) return;
   const d = document.createElement('div');
   d.id = 'loginScreen';
-  d.innerHTML = `<div class="login-card"><span class="brand-mark"><svg viewBox="0 0 64 64"><path d="M14 42l12-14 10 8 14-18" /></svg></span><h2>TM Hub</h2><p>Sign in with your <b>@${esc(j.domain || 'uprio.com')}</b> Google account to continue.</p>${j.clientReady ? '<a class="btn btn-primary" href="/auth/login">Sign in with Google</a>' : '<p class="note">Google sign-in is not set up yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the Vercel project settings.</p>'}</div>`;
+  d.innerHTML = `<div class="login-card"><span class="brand-mark">${(document.querySelector('.brand-mark') || {}).innerHTML || ''}</span><h2>Lighthouse V2</h2><p>Sign in with your <b>@${esc(j.domain || 'uprio.com')}</b> Google account to continue.</p>${j.clientReady ? '<a class="btn btn-primary" href="/auth/login">Sign in with Google</a>' : '<p class="note">Google sign-in is not set up yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the Vercel project settings.</p>'}</div>`;
   document.body.append(d);
 }
 function toast(msg, type = '') {
@@ -241,7 +241,7 @@ window.addEventListener('resize', () => {
 function title(t, sub) {
   $('#pageTitle').textContent = t;
   $('#pageSub').textContent = sub || '';
-  document.title = `${t} · TM Hub`;
+  document.title = `${t} · Lighthouse V2`;
 }
 function noData() {
   const st = S.status || {};
@@ -273,6 +273,19 @@ function nextSend() {
   }
   return { label: 'Next: 11 AM tasks', value: st.now.day === 'Sat' ? 'Monday' : 'tomorrow' };
 }
+// Lighthouse Student Learning Progress: TM process done (Maths and Science), team average and per TM.
+function processTile(b) {
+  const rows = b.rows.map((r) => ({ r, m: (r.perf.metrics.tmprocess || {}).maths, s: (r.perf.metrics.tmprocess || {}).science }));
+  const avg = (k) => { const v = rows.map((x) => x[k]).filter((x) => x != null); return v.length ? Math.round(v.reduce((a, c) => a + c, 0) / v.length) : null; };
+  const m = avg('m'), s = avg('s');
+  const low = rows.filter((x) => x.m != null).sort((a, c) => a.m - c.m)[0];
+  const crit = m != null && m < 50;
+  return `<span class="rise kpi-wrap" style="--i:9" data-go="#/team" data-bit="SpotlightCard" data-props="${esc(JSON.stringify({ theme: 'light', spotlightColor: crit ? '#e0563f' : '#5b60d6', intensity: 0.22, spotlightSize: 260, className: `kpi${crit ? ' crit' : ''}` }))}">
+    <div class="top"><div class="ico">🔁</div>${crit ? pill('critical', 'Low') : pill('ok', 'Maths')}</div>
+    <div class="val">${m == null ? '—' : `<span data-count="${m}">0</span><small>% Maths</small>`}</div><div class="lbl">TM process done</div>
+    <div class="meta">${s != null ? `Science ${s}% · ` : ''}${low ? `lowest ${esc(low.r.first)} ${low.m}%` : 'Refresh to load'}</div>
+    <div class="prog ${crit ? 'red' : ''}"><i data-w="${m || 0}"></i></div></span>`;
+}
 function tmCard(r, i, top = false) {
   const t = r.tasks;
   const open = S.tasks.filter((x) => x.kind === 'list').reduce((a, x) => a + t[x.key].pending, 0);
@@ -289,6 +302,7 @@ function tmCard(r, i, top = false) {
         <div><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
         <div><b>${t.chapters ? t.chapters.pending : 0}</b><span>chapters missing</span></div>
         <div><b>${t.approvals ? t.approvals.pending : 0}</b><span>approvals pending</span></div>
+        <div title="Student Learning Progress: TM process done (Maths)"><b>${r.perf.metrics.tmprocess && r.perf.metrics.tmprocess.maths != null ? r.perf.metrics.tmprocess.maths + '%' : '—'}</b><span>Maths TM process done</span></div>
         <div><b data-count="${open}">0</b><span>open items</span></div>
       </div>
       <div class="flags">${r.concerns.length ? r.concerns.slice(0, 3).map((c) => pill('critical', c)).join('') + (r.concerns.length > 3 ? `<span class="tag">+${r.concerns.length - 3}</span>` : '') : pill('clear', 'Nothing critical')}</div>
@@ -344,7 +358,7 @@ async function dashboard() {
         <div class="val">${val}</div><div class="lbl">${esc(t.label)}</div><div class="meta">${esc(meta)}</div>
         <div class="prog ${crit ? 'red' : ''}"><i data-w="${p}"></i></div></span>`;
     })
-    .join('');
+    .join('') + processTile(b);
   view.innerHTML = `
     <div class="hero rise">
       ${bit('Aurora', { colorStops: ['#7c81e8', '#b3b6fa', '#4a4fc4'], amplitude: 1.1, blend: 0.6, speed: 0.6, opacity: 0.55, mouseInteraction: true }, '', 'position:absolute;inset:0;display:block;pointer-events:none')}
