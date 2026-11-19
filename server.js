@@ -332,7 +332,8 @@ app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-se
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 // A TM sees only their own students; other approved people see no student data.
-app.use(['/api/students.csv', '/api/parents'], (req, res, next) => {
+app.use('/api/parents', (req, res, next) => (req.role === 'owner' ? next() : res.status(403).json({ error: 'Only the owner can see parent numbers.' })));
+app.use(['/api/students.csv'], (req, res, next) => {
   if (req.role === 'owner') return next();
   if (req.role === 'tm') {
     req.query = { ...req.query, tm: req.myTm };
@@ -544,7 +545,7 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     .sort((a, b) => String(b.start).localeCompare(String(a.start)));
   let parents = [];
   try {
-    parents = (await Parents.ensure([id]))[id] || [];
+    parents = req.role === 'owner' ? (await Parents.ensure([id]))[id] || [] : [];
   } catch (e) {
     error = error || e.message;
   }
@@ -634,16 +635,18 @@ app.get('/api/students.csv', async (req, res) => {
   };
   const day = (d) => (d ? istDate(new Date(d)) : '');
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : '');
-  const head = ['TM', 'Student ID', 'Student', 'Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone', 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
+  const showParents = req.role === 'owner';
+  const head = ['TM', 'Student ID', 'Student', ...(showParents ? ['Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone'] : []), 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
   const lines = [head.map(q).join(',')];
   const wanted = team().filter((m) => !req.query.tm || req.query.tm === m.name);
   let P = {};
   try {
-    P = await Parents.ensure(wanted.flatMap((m) => ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id)));
+    if (showParents) P = await Parents.ensure(wanted.flatMap((m) => ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id)));
   } catch (e) {
     console.log('[parents]', e.message);
   }
   const par = (s, i) => {
+    if (!showParents) return [];
     const g = (P[s.id] || [])[i] || {};
     return [g.name || '', g.relation || '', g.phone || ''];
   };

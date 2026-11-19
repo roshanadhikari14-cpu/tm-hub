@@ -520,6 +520,7 @@ function sparkline(history) {
 let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
 // Parent / guardian name + number, filled in from /api/parents after the students tab opens.
 const parentMap = {};
+const isOwnerUI = () => !S.status || S.status.owner !== false;
 const telLink = (p) => (p ? `<a class="tel" href="tel:${esc(String(p).replace(/[^+d]/g, ''))}">${esc(p)}</a>` : '');
 function parentCell(id) {
   const g = parentMap[id];
@@ -567,7 +568,7 @@ function studentRows(students) {
               : '<span style="color:var(--green);font-weight:600">Attending</span>';
         return `<tr class="${nc || (a && a.streak >= 3) || (typeof s.greenPct === 'number' && s.greenPct < 40) ? 'flag' : ''}"><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${s.id}`, esc(s.name))}</b>${s.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${s.oneOnOne ? ' <span class="tag">1:1</span>' : ''}</td>
-          <td class="par-cell" data-par="${s.id}">${parentCell(s.id)}</td>
+          ${isOwnerUI() ? `<td class="par-cell" data-par="${s.id}">${parentCell(s.id)}</td>` : ''}
           <td class="num">${esc(s.grade ?? '—')}</td>
           <td>${lhLink(s.schoolId ? `https://lighthouse.uprio.com/school-planning/v2/${s.schoolId}?grade=${encodeURIComponent(s.grade ?? '')}` : '', esc(s.school || '—'))}<br><small style="color:var(--ink-3)">${esc((s.batch || '').split('|')[0])}</small></td>
           <td style="white-space:nowrap">${attCell}</td><td style="white-space:nowrap">${absCell}</td>
@@ -654,7 +655,7 @@ async function tm([name, focus]) {
           <select class="sel" id="stuF"><option value="all">All students</option><option value="low">Green below 60%</option><option value="nc15">Not contacted 15+ days</option><option value="absent">Absent 3+ class days</option><option value="lowatt">Regular attendance below 70%</option><option value="one">1:1 students</option><option value="lapsed">Subscription lapsed</option></select>
           <span class="note" id="stuN"></span>
           <a class="btn btn-ghost" href="/api/students.csv?tm=${encodeURIComponent(r.name)}" download>⬇ Download CSV</a></div>
-        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th><th>Parent / phone</th><th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th class="sort" data-s="renewal">Next renewal</th></tr></thead><tbody id="stuBody"></tbody></table></div>
+        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th>${isOwnerUI() ? '<th>Parent / phone</th>' : ''}<th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th class="sort" data-s="renewal">Next renewal</th></tr></thead><tbody id="stuBody"></tbody></table></div>
       </div>
     </div>`;
 
@@ -664,7 +665,7 @@ async function tm([name, focus]) {
     $('#stuN').textContent = `${o.count} shown`;
   };
   paintStudents();
-  api(`/api/parents?tm=${encodeURIComponent(r.name)}`).then((p) => { Object.assign(parentMap, p.parents || {}); paintStudents(); }).catch(() => {});
+  if (isOwnerUI()) api(`/api/parents?tm=${encodeURIComponent(r.name)}`).then((p) => { Object.assign(parentMap, p.parents || {}); paintStudents(); }).catch(() => {});
   $('#stuQ').oninput = (e) => ((stuState.q = e.target.value), paintStudents());
   $('#stuF').onchange = (e) => ((stuState.filter = e.target.value), paintStudents());
   $$('#ptab-students th.sort').forEach(
@@ -1548,7 +1549,7 @@ async function openPtmPanel(meetingId) {
           .join('')}</div>`
       : '<p class="note" style="margin:0">No PTMs found.</p>'
   }</div>`;
-  const fam = `<div class="dsec"><h4>Parents / guardians <span class="ptag blue">${(j.parents || []).length}</span></h4>${
+  const fam = !isOwnerUI() ? '' : `<div class="dsec"><h4>Parents / guardians <span class="ptag blue">${(j.parents || []).length}</span></h4>${
     (j.parents || []).length
       ? `<div class="dlist">${j.parents.map((g) => `<div class="it"><div class="when">${esc(g.relation || 'Guardian')}${g.primary ? '<small>Primary contact</small>' : ''}</div><div class="what"><b>${esc(g.name || '—')}</b><br>${telLink(g.phone) || '<small style="color:var(--ink-3)">No number</small>'}${g.email ? `<br><small style="color:var(--ink-3)">${esc(g.email)}</small>` : ''}</div></div>`).join('')}</div>`
       : '<p class="note" style="margin:0">No parent details found in Lighthouse.</p>'
