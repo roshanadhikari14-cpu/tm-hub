@@ -921,21 +921,10 @@ async function settings() {
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
     <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
-    <div class="card rise" style="margin-bottom:18px"><h3>📄 PTM reports</h3><div class="sub">Student reports are free and need no key. The Claude key below is optional (nicer wording); the Drive folder is an optional copy for the owner.</div>
-      <div class="ai-grid">
-        <div><small>Claude API key</small><b>${st.ai ? '✓ Saved' : 'Not added yet'}</b><input id="aiKey" type="password" autocomplete="off" placeholder="${st.ai ? 'Paste a new key to replace it' : 'Paste the key (starts with sk-ant-)'}"></div>
-        <div><small>Drive folder</small><b>${st.reportFolder ? '<a class="lh" target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/' + esc(st.reportFolder) + '">Student Report Doc<span class="ext">↗</span></a>' : 'Not set'}</b><input id="aiFolder" placeholder="Paste a different folder link (optional)"></div>
-      </div>
-      <div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-primary" id="aiSave">Save</button></div>
-      <p class="note" style="margin-top:8px">Saving to Drive uses the Google account connected for email. If you connected it before Drive was added, connect it again below and tick Google Drive on the Google screen.</p></div>
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
     <div class="grid g-2" style="grid-template-columns:1fr 1fr">
-      <div class="card rise"><h3>Lighthouse</h3><div class="sub" style="margin-bottom:12px">${st.lighthouse ? (st.refreshError ? `<span style="color:var(--red)">${esc(st.refreshError)}</span>` : `Connected · last data ${esc(fmtTime(st.dataAt))}`) : 'Not connected'}</div>
-        <div class="form"><label>Authorization value<textarea id="lhAuth" rows="3" placeholder="Bearer eyJ…"></textarea></label>
-          <p class="note">In Chrome open Lighthouse → F12 → Network → click any request → Request Headers → copy the <b>authorization</b> value and paste it here. The login expires now and then; paste a fresh one when Refresh says the login was refused.</p>
-          <div><button class="btn btn-primary" id="saveLh">Save login</button></div></div></div>
       <div class="card rise" style="--i:1"><h3>Email (Gmail)</h3><div class="sub" style="margin-bottom:12px">${g.email ? `Signed in with Google · sending as <b>${esc(g.email)}</b>` : st.email ? `Sending as ${esc(st.sender)} with an App Password` : 'Not set up'}</div>
         <div class="form">
           ${st.gated ? `<p class="note">You are signed in as <b>${esc(st.user || '')}</b> · <a href="/auth/logout">Sign out</a>${st.owner ? '' : '. Only the owner can change settings or send mail.'}</p>` : ''}
@@ -968,15 +957,6 @@ async function settings() {
           <div><button class="btn btn-ghost" id="saveEm">Save name</button></div>
           <div id="emRes"></div></div></div>
     </div>`;
-  $('#saveLh').onclick = async () => {
-    try {
-      await api('/api/login', { body: { auth: $('#lhAuth').value } });
-      toast('Lighthouse login saved. Refreshing…', 'ok');
-      $('#refreshBtn').click();
-    } catch (err) {
-      toast(err.message, 'err');
-    }
-  };
   $('#saveEm').onclick = async () => {
     try {
       await api('/api/email-settings', { body: { fromName: $('#emName').value } });
