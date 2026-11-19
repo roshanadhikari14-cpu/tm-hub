@@ -169,11 +169,7 @@ async function load(force) {
 function paintChrome() {
   const st = S.status;
   if (!st) return;
-  $('#sideStatus').innerHTML = `
-    <div class="row"><span class="dot ${st.lighthouse && !st.refreshError ? 'on' : 'off'}"></span>Lighthouse ${st.lighthouse ? (st.refreshError ? 'error' : 'connected') : 'not connected'}</div>
-    <div class="row"><span class="dot ${st.email ? 'on' : 'off'}"></span>Email ${st.email ? 'set up' : 'not set up'}</div>
-    <div class="row"><span class="dot ${st.config.enabled ? 'on' : 'off'}"></span>Auto-send ${st.config.enabled ? 'on (Mon–Sat)' : 'off'}</div>
-    <small>Data: ${esc(fmtTime(st.dataAt))}</small>`;
+  $('#sideStatus').innerHTML = `<small>Last refresh at</small><b>${esc(fmtTime(st.dataAt))}</b>${st.refreshError ? '<small class="err">Last refresh had an error</small>' : ''}`;
   const seg = $('#slotSeg');
   $$('button', seg).forEach((b) => b.classList.toggle('on', b.dataset.slot === S.slot));
   const on = $('button.on', seg);

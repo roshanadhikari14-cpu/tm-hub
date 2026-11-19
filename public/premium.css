@@ -305,3 +305,9 @@ html { scroll-behavior: smooth; }
 .hero:hover .hero-beam { animation-duration: 3.5s; }
 @media (max-width: 820px) { .hero-beam { opacity: 0.45; right: -8%; } }
 @media (prefers-reduced-motion: reduce) { .sidebar::after, .hero-beam, .brand:hover .lh-beam, .brand:hover .lh-flare { animation: none !important; } }
+
+/* sidebar footer: only the last refresh time */
+.side-status { gap: 2px; padding: 12px 14px; }
+.side-status small { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 1; color: #8d92b0; }
+.side-status b { font-family: var(--serif); font-weight: 500; font-size: 15px; color: #f1e3bf; }
+.side-status small.err { color: #ff9c8f; text-transform: none; letter-spacing: 0; margin-top: 4px; }
