@@ -1043,10 +1043,11 @@ function hush() {
 }
 function tmLine(r) {
   const T = r.tasks;
-  const done = S.tasks.filter((t) => t.kind !== 'talk').reduce((n, t) => n + ((t.kind === 'list' ? T[t.key].closed : T[t.key].done) || 0), 0);
-  const total = S.tasks.filter((t) => t.kind !== 'talk').reduce((n, t) => n + (T[t.key].morning || 0), 0);
-  const ptm = T.talk.ptm ? `, including ${T.talk.ptm} P T M` : '';
-  return `${r.first}. ${done} of ${total} tasks done. Talk time ${T.talk.minutes || 0} minutes${ptm}. ${T.nc15 ? `${T.nc15.pending} N C 15 students.` : ''}`;
+  const list = S.tasks.filter((t) => t.kind !== 'talk');
+  const pending = list.reduce((n, t) => n + (T[t.key].pending || 0), 0);
+  const done = list.reduce((n, t) => n + ((t.kind === 'list' ? T[t.key].closed : T[t.key].done) || 0), 0);
+  const s = (n) => (n === 1 ? '' : 's');
+  return `${r.first}. ${pending} task${s(pending)} pending. ${done} task${s(done)} completed.`;
 }
 function sayText(text) {
   if (!window.speechSynthesis) return;
