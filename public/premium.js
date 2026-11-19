@@ -80,6 +80,6 @@
     for (const sel of ['#view', '#modalCard', '#toasts']) { const el = document.querySelector(sel); if (el) swap(el); }
     busy = false;
   };
-  new MutationObserver(() => requestAnimationFrame(run)).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => { clearTimeout(window.__icT); window.__icT = setTimeout(run, 30); }).observe(document.body, { childList: true, subtree: true });
   run();
 })();
