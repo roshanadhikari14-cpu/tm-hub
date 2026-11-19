@@ -5,15 +5,15 @@
   --mint: #ecedfb;
   --ink: #12282a;
   --ink-2: #4d6467;
-  --ink-3: #87999b;
+  --ink-3: #5a6f72;
   --line: #e3ecec;
   --card: rgba(255, 255, 255, 0.86);
   --bg: #f3f7f7;
   --red: #c4321f;
   --red-bg: #fdecea;
-  --amber: #b07400;
+  --amber: #8a5a00;
   --amber-bg: #fff4dc;
-  --green: #17865a;
+  --green: #0f7048;
   --green-bg: #e5f6ed;
   --shadow: 0 1px 2px rgba(13, 50, 55, 0.06), 0 8px 24px -8px rgba(13, 50, 55, 0.12);
   --shadow-lg: 0 2px 4px rgba(13, 50, 55, 0.06), 0 24px 48px -16px rgba(13, 50, 55, 0.25);
@@ -282,7 +282,7 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .search { flex: 1; min-width: 200px; position: relative; }
 .search input { width: 100%; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 14px 10px 36px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
-.search input:focus { border-color: var(--teal-2); box-shadow: 0 0 0 4px rgba(18, 128, 138, 0.12); }
+.search input:focus { border-color: var(--teal-2); box-shadow: 0 0 0 4px rgba(51, 55, 158, 0.18); }
 .search::before { content: '⌕'; position: absolute; left: 12px; top: 50%; transform: translateY(-52%); color: var(--ink-3); font-size: 18px; }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; user-select: none; }
 .toggle input { display: none; }
@@ -326,7 +326,7 @@ select.sel { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12
 .form { display: grid; gap: 14px; max-width: 560px; }
 .form label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .form input[type='text'], .form input[type='email'], .form input[type='password'], .form input[type='number'], .form textarea { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: #fff; outline: none; font: inherit; }
-.form input:focus, .form textarea:focus { border-color: var(--teal-2); box-shadow: 0 0 0 4px rgba(18, 128, 138, 0.12); }
+.form input:focus, .form textarea:focus { border-color: var(--teal-2); box-shadow: 0 0 0 4px rgba(51, 55, 158, 0.18); }
 .note { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
 .callout { border-radius: 14px; padding: 12px 16px; font-size: 13.5px; background: var(--amber-bg); color: #6b4a00; }
 .callout.red { background: var(--red-bg); color: #7d1f12; }
@@ -516,3 +516,13 @@ a.lh .ext { font-size: 0.8em; margin-left: 3px; opacity: 0.55; }
 .ai-grid > div { display: grid; gap: 6px; }
 .ai-grid small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
 @media (max-width: 700px) { .ai-grid { grid-template-columns: 1fr; } .report-card input { width: 100%; } }
+
+/* Keyboard focus: a clear 2px ring on everything clickable (WCAG 2.2) */
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [role='button']:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--teal-2);
+  outline-offset: 2px;
+}
+.side a:focus-visible, .nav a:focus-visible { outline-color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .bg-orbs span { animation: none !important; }
+}
