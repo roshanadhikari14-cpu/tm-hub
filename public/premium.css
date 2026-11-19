@@ -417,3 +417,9 @@ button.ts:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); bor
 .team-sum { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .ts { min-width: 0; }
 .ts small { display: block; }
+
+/* voice pack recorder */
+.pk-say { font-family: var(--serif); font-size: 44px; font-weight: 600; text-align: center; margin: 18px 0 4px; letter-spacing: -0.02em; }
+.pk-hint { text-align: center; color: var(--ink-3); font-size: 13px; margin-bottom: 14px; }
+.btn.rec-on { background: #b83223; animation: recPulse 1.1s ease-in-out infinite; }
+@keyframes recPulse { 50% { box-shadow: 0 0 0 8px rgba(184, 50, 35, 0.2); } }

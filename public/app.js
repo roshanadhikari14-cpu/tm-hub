@@ -922,6 +922,7 @@ async function settings() {
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
     <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
+    <div class="card rise" style="margin-bottom:18px"><h3>🎙 My voice for hover read-outs</h3><div id="packBox" class="note">Loading…</div></div>
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
@@ -1003,6 +1004,7 @@ async function settings() {
     }
   };
   paintAccess();
+  paintPack();
 }
 
 // ---------- start ----------
@@ -1034,9 +1036,14 @@ document.addEventListener('change', (e) => {
   if (!e.target.checked) hush();
   toast(e.target.checked ? 'Speak on hover is on' : 'Speak on hover is off', 'ok');
 });
-const voice = { timer: null, last: '', at: 0, clip: null };
+const voice = { timer: null, last: '', at: 0, clip: null, run: 0, src: null };
 function hush() {
   clearTimeout(voice.timer);
+  voice.run++;
+  try {
+    if (voice.src) voice.src.stop();
+  } catch {}
+  voice.src = null;
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (voice.clip) voice.clip.pause();
   voice.clip = null;
@@ -1057,6 +1064,202 @@ function sayText(text) {
   u.rate = 1.02;
   speechSynthesis.speak(u);
 }
+// ---- Voice pack: the owner's own voice, stitched from short clips ----
+const slugOf = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+let packCache = null;
+async function packKeys(force) {
+  if (!packCache || force) packCache = api('/api/voicepack').then((j) => j.keys).catch(() => ({}));
+  return packCache;
+}
+function lineParts(r) {
+  const T = r.tasks;
+  const list = S.tasks.filter((t) => t.kind !== 'talk');
+  const pending = list.reduce((n, t) => n + (T[t.key].pending || 0), 0);
+  const done = list.reduce((n, t) => n + ((t.kind === 'list' ? T[t.key].closed : T[t.key].done) || 0), 0);
+  const one = (n, word) => ({ key: n === 1 ? 'task-' + word : 'tasks-' + word, text: `${n === 1 ? 'task' : 'tasks'} ${word}` });
+  return [
+    { key: 'name-' + slugOf(r.first), text: r.first },
+    { key: 'n-' + pending, text: String(pending) },
+    one(pending, 'pending'),
+    { key: 'n-' + done, text: String(done) },
+    one(done, 'completed'),
+  ];
+}
+let audioCtx = null;
+const bufCache = new Map();
+async function clipBuffer(key, v) {
+  const id = key + ':' + v;
+  if (!bufCache.has(id)) {
+    bufCache.set(id, fetch('/api/voicepack/' + key + '?v=' + v).then((r) => r.arrayBuffer()).then((b) => audioCtx.decodeAudioData(b)));
+  }
+  return bufCache.get(id);
+}
+function speakFallback(text) {
+  return new Promise((res) => {
+    if (!window.speechSynthesis) return res();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = speechSynthesis.getVoices().find((x) => /en[-_]IN/i.test(x.lang)) || speechSynthesis.getVoices().find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    u.onend = u.onerror = () => res();
+    speechSynthesis.speak(u);
+  });
+}
+async function playParts(parts, pack) {
+  const run = voice.run;
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+  for (const p of parts) {
+    if (voice.run !== run) return;
+    if (pack[p.key]) {
+      try {
+        const buf = await clipBuffer(p.key, pack[p.key]);
+        if (voice.run !== run) return;
+        await new Promise((res) => {
+          const src = audioCtx.createBufferSource();
+          src.buffer = buf;
+          src.connect(audioCtx.destination);
+          src.onended = res;
+          voice.src = src;
+          src.start();
+        });
+        continue;
+      } catch {}
+    }
+    await speakFallback(p.text);
+  }
+}
+// ---- Settings: guided recorder for the voice pack (owner only) ----
+function packPrompts() {
+  const names = ((S.data && S.data.rows) || []).map((r) => ({ key: 'name-' + slugOf(r.first), say: r.first, hint: 'a TM name' }));
+  const nums = Array.from({ length: 51 }, (_, i) => ({ key: 'n-' + i, say: String(i), hint: 'a number' }));
+  return [
+    { key: 'tasks-pending', say: 'tasks pending', hint: 'the phrase, like “9 tasks pending”' },
+    { key: 'task-pending', say: 'task pending', hint: 'singular, like “1 task pending”' },
+    { key: 'tasks-completed', say: 'tasks completed', hint: 'the phrase, like “2 tasks completed”' },
+    { key: 'task-completed', say: 'task completed', hint: 'singular, like “1 task completed”' },
+    ...names,
+    ...nums,
+  ];
+}
+function toWav(buf) {
+  const ch = buf.getChannelData(0);
+  const thr = 0.02;
+  let s = 0, e = ch.length - 1;
+  while (s < e && Math.abs(ch[s]) < thr) s++;
+  while (e > s && Math.abs(ch[e]) < thr) e--;
+  const pad = Math.round(buf.sampleRate * 0.03);
+  s = Math.max(0, s - pad);
+  e = Math.min(ch.length - 1, e + pad);
+  const rate = 24000;
+  const ratio = buf.sampleRate / rate;
+  const n = Math.max(1, Math.floor((e - s) / ratio));
+  const out = new DataView(new ArrayBuffer(44 + n * 2));
+  const w = (o, t) => [...t].forEach((x, i) => out.setUint8(o + i, x.charCodeAt(0)));
+  w(0, 'RIFF'); out.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); w(36, 'data'); out.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const v = Math.max(-1, Math.min(1, ch[s + Math.floor(i * ratio)] * 1.15));
+    out.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  }
+  return new Blob([out], { type: 'audio/wav' });
+}
+async function packRecorder() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) return toast('This browser cannot record sound. Try Chrome.', 'err');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } });
+  } catch {
+    return toast('Allow the microphone to record.', 'err');
+  }
+  const have = await packKeys(true);
+  const prompts = packPrompts().filter((p) => !have[p.key]);
+  if (!prompts.length) {
+    stream.getTracks().forEach((t) => t.stop());
+    return toast('Every clip is already recorded.', 'ok');
+  }
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  const m = $('#modal');
+  $('#modalCard').innerHTML = `<h3>🎙 Record your voice pack</h3><div class="note">Say each word on its own, clearly, in your normal voice. About ${prompts.length} short clips.</div>
+    <div class="pk-say" id="pkSay"></div><div class="pk-hint" id="pkHint"></div><div class="rp-bar"><i id="pkBar"></i></div><div class="rp-meta"><span id="pkN"></span><span id="pkStat"></span></div>
+    <div class="actions"><button class="btn btn-ghost" id="pkSkip">Skip</button><button class="btn btn-primary" id="pkRec">● Record</button><button class="btn btn-ghost" id="pkDone">Finish</button></div>`;
+  m.hidden = false;
+  let i = 0, rec = null, chunks = [];
+  const show = () => {
+    const p = prompts[i];
+    if (!p) return finish();
+    $('#pkSay').textContent = p.say;
+    $('#pkHint').textContent = p.hint;
+    $('#pkN').textContent = `${i + 1} of ${prompts.length}`;
+    $('#pkBar').style.width = (100 * i) / prompts.length + '%';
+    $('#pkStat').textContent = '';
+  };
+  const finish = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    m.hidden = true;
+    packKeys(true);
+    toast('Voice pack saved', 'ok');
+    const box = $('#packBox');
+    if (box) paintPack();
+  };
+  $('#pkDone').onclick = finish;
+  $('#pkSkip').onclick = () => { i++; show(); };
+  $('#pkRec').onclick = async () => {
+    const btn = $('#pkRec');
+    if (!rec) {
+      chunks = [];
+      rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = async () => {
+        $('#pkStat').textContent = 'Saving…';
+        try {
+          const buf = await audioCtx.decodeAudioData(await new Blob(chunks).arrayBuffer());
+          const wav = toWav(buf);
+          const r = await fetch('/api/voicepack/' + prompts[i].key, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save');
+          i++;
+          show();
+        } catch (err) {
+          $('#pkStat').textContent = err.message;
+        }
+        rec = null;
+        btn.textContent = '● Record';
+        btn.classList.remove('rec-on');
+      };
+      rec.start();
+      btn.textContent = '■ Stop';
+      btn.classList.add('rec-on');
+    } else {
+      rec.stop();
+    }
+  };
+  show();
+}
+async function paintPack() {
+  const box = $('#packBox');
+  if (!box) return;
+  const have = await packKeys(true);
+  const all = packPrompts();
+  const n = all.filter((p) => have[p.key]).length;
+  box.innerHTML = `<div class="sub">${n} of ${all.length} clips recorded.${n ? '' : ' Record once, then hovering a TM speaks in your voice.'}</div>
+    <div class="actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-primary" id="packRec">🎙 ${n ? 'Record the rest' : 'Start recording'}</button>${n ? '<button class="btn btn-ghost" id="packTest">▶ Test it</button><button class="btn btn-ghost" id="packClear">Delete all</button>' : ''}</div>`;
+}
+document.addEventListener('click', async (e) => {
+  const id = e.target.closest && e.target.closest('#packRec, #packTest, #packClear');
+  if (!id) return;
+  if (id.id === 'packRec') return packRecorder();
+  if (id.id === 'packTest') {
+    const r = S.data && S.data.rows[0];
+    if (!r) return toast('Load the dashboard first.', 'err');
+    hush();
+    return playParts(lineParts(r), await packKeys());
+  }
+  if (await confirmBox('Delete the voice pack?', 'All recorded clips will be removed. Hover read-outs go back to the browser voice.', 'Delete')) {
+    await fetch('/api/voicepack', { method: 'DELETE' }).catch(() => {});
+    packCache = null;
+    paintPack();
+  }
+});
+
 // Which TMs have a greeting (asked once, and again after a recording changes).
 let voiceList = null;
 async function voices(force) {
@@ -1068,6 +1271,9 @@ async function speakTm(name) {
   const r = S.data && S.data.rows.find((x) => x.name === name);
   if (!r) return;
   hush();
+  const pack = await packKeys();
+  const parts = lineParts(r);
+  if (parts.some((p) => pack[p.key])) return playParts(parts, pack);
   const text = tmLine(r);
   const v = (await voices())[name];
   if (!v || !v.has) return sayText(text);

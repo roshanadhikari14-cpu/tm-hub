@@ -612,6 +612,40 @@ app.get('/api/tm/:name', (req, res) => {
   res.json({ tasks: M.TASKS, row, slot: b.slot, monthStart: A.monthStart || null, dataDate: A.date, students: (A.students && A.students[row.lighthouseName]) || [], history, team: b.rows.map((r) => ({ name: req.role === 'owner' || r.name === req.myTm ? r.name : 'Team member', score: r.perf.score })) });
 });
 
+// Voice pack: short clips of the owner's own voice (names, numbers, phrases) that the hover read-out stitches together.
+const PACK = path.join(DATA, 'voicepack');
+const packKey = (k) => (/^[a-z0-9-]{1,40}$/.test(String(k)) ? String(k) : null);
+app.get('/api/voicepack', (req, res) => {
+  const out = {};
+  try {
+    for (const f of fs.readdirSync(PACK)) if (f.endsWith('.wav')) out[f.slice(0, -4)] = Math.round(fs.statSync(path.join(PACK, f)).mtimeMs);
+  } catch {}
+  res.json({ keys: out, owner: isOwner(req) });
+});
+app.get('/api/voicepack/:key', (req, res) => {
+  const k = packKey(req.params.key);
+  const f = k && path.join(PACK, k + '.wav');
+  if (!f || !fs.existsSync(f)) return res.status(404).end();
+  res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.send(fs.readFileSync(f));
+});
+app.post('/api/voicepack/:key', express.raw({ type: '*/*', limit: '3mb' }), (req, res) => {
+  if (!isOwner(req)) return res.status(403).json({ error: 'Only the owner can record the voice pack.' });
+  const k = packKey(req.params.key);
+  if (!k || !Buffer.isBuffer(req.body) || req.body.length < 200 || req.body.slice(0, 4).toString() !== 'RIFF') return res.status(400).json({ error: 'That is not a valid recording.' });
+  fs.mkdirSync(PACK, { recursive: true });
+  fs.writeFileSync(path.join(PACK, k + '.wav'), req.body);
+  res.json({ ok: true });
+});
+app.delete('/api/voicepack', (req, res) => {
+  if (!isOwner(req)) return res.status(403).json({ error: 'Only the owner can do this.' });
+  try {
+    for (const f of fs.readdirSync(PACK)) fs.unlinkSync(path.join(PACK, f));
+  } catch {}
+  res.json({ ok: true });
+});
+
 // Parent / guardian names and numbers for one TM's students (?tm=Name).
 app.get('/api/parents', async (req, res) => {
   try {
