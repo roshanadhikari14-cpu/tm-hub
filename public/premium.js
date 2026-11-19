@@ -128,7 +128,7 @@
   function heroArt() {
     document.querySelectorAll('#view .hero').forEach((h) => {
       if (h.querySelector('.hero-art')) return;
-      h.insertAdjacentHTML('afterbegin', ART);
+      h.insertAdjacentHTML('afterbegin', ART + '<span class="hero-beam" aria-hidden="true"></span>');
     });
   }
   function navInd() {
@@ -141,6 +141,18 @@
     ind.style.height = a.offsetHeight - 16 + 'px';
     ind.style.transform = 'translateY(' + (a.offsetTop + 8) + 'px)';
   }
+  // the lighthouse beam follows the pointer while it is over the logo
+  document.addEventListener('pointermove', (e) => {
+    const brand = e.target.closest && e.target.closest('.brand');
+    document.querySelectorAll('.lh-photo.tracking').forEach((m) => { if (!brand || !brand.contains(m)) m.classList.remove('tracking'); });
+    if (!brand) return;
+    const mark = brand.querySelector('.lh-photo');
+    if (!mark) return;
+    const r = mark.getBoundingClientRect();
+    const ang = Math.atan2(e.clientY - (r.top + r.height * 0.225), e.clientX - (r.left + r.width * 0.5)) * 180 / Math.PI;
+    mark.classList.add('tracking');
+    mark.style.setProperty('--ang', ang + 'deg');
+  }, { passive: true });
   document.addEventListener('pointermove', (e) => {
     const el = e.target.closest && e.target.closest('.kpi, .tm-card, .hero');
     if (!el) return;

@@ -261,3 +261,47 @@ html { scroll-behavior: smooth; }
 .brand-text b { display: inline-flex; align-items: baseline; gap: 6px; }
 .brand-text .v2 { font-family: 'Plus Jakarta Sans', sans-serif; font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: #04210a; background: linear-gradient(135deg, #00e500, #00bfba); padding: 2px 6px; border-radius: 6px; transform: translateY(-3px); box-shadow: 0 0 14px -2px rgba(0, 229, 0, 0.7); }
 @media (prefers-reduced-motion: reduce) { .brand-mark::after, .lh-sweep { animation: none !important; } .lh-b1, .lh-b2, .lh-b3 { animation: none !important; opacity: 1; } }
+
+/* ===================== LIGHTHOUSE THEME (sunset + sea) ===================== */
+:root { --gold: #d99a2b; --gold-2: #f5c76a; --gold-bg: #fbf0d6; --sea: #1d4f91; --sunset: #f59e3b; }
+
+/* logo: the lighthouse photo; light only moves while the pointer is over it */
+.brand-mark.lh-photo { width: 50px; height: 50px; border-radius: 50%; background: none; padding: 0; overflow: visible; position: relative; animation: none;
+  box-shadow: 0 0 0 2px rgba(245, 199, 106, 0.55), 0 8px 24px -6px rgba(245, 158, 59, 0.6); transition: box-shadow 0.4s, transform 0.4s var(--ease); }
+.brand-mark.lh-photo::after { display: none; }
+.lh-photo img { width: 100%; height: 100%; border-radius: 50%; display: block; object-fit: cover; }
+.brand:hover .lh-photo { transform: scale(1.12); box-shadow: 0 0 0 2px rgba(255, 224, 150, 0.95), 0 10px 34px -4px rgba(245, 180, 70, 0.95); }
+.lh-fx { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; pointer-events: none; }
+.lh-beam { position: absolute; left: 50%; top: 22.5%; width: 74%; height: 13%; margin-top: -6.5%; transform-origin: 0 50%; opacity: 0; mix-blend-mode: screen;
+  background: linear-gradient(90deg, rgba(255, 244, 200, 0.98), rgba(255, 214, 120, 0.55) 45%, transparent); clip-path: polygon(0 40%, 100% 0, 100% 100%, 0 60%);
+  transition: opacity 0.35s; --ang: 0deg; transform: rotate(var(--ang)); }
+.lh-beam.b { transform: rotate(calc(var(--ang) + 180deg)); }
+.lh-flare { position: absolute; left: 50%; top: 22.5%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%; opacity: 0; transform: scale(0.6);
+  background: radial-gradient(circle, rgba(255, 246, 210, 1), rgba(255, 200, 90, 0.5) 40%, transparent 70%); transition: opacity 0.3s, transform 0.4s var(--ease); }
+.brand:hover .lh-beam, .brand:focus-visible .lh-beam { opacity: 1; animation: lhSwing 3.4s ease-in-out infinite alternate; }
+.brand:hover .lh-beam.b { animation-name: lhSwingB; }
+.brand:hover .lh-flare { opacity: 1; transform: scale(1); animation: lhFlare 1.6s ease-in-out infinite; }
+.brand .lh-photo.tracking .lh-beam { animation: none; transition: opacity 0.35s, transform 0.12s linear; }
+@keyframes lhSwing { from { transform: rotate(-38deg); } to { transform: rotate(38deg); } }
+@keyframes lhSwingB { from { transform: rotate(142deg); } to { transform: rotate(218deg); } }
+@keyframes lhFlare { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+.brand-text .v2 { color: #3a2200; background: linear-gradient(135deg, #f5c76a, #f59e3b); box-shadow: 0 0 14px -2px rgba(245, 158, 59, 0.8); }
+.login-card .brand-mark.lh-photo { width: 120px; height: 120px; margin: 0 auto 10px; }
+
+/* sidebar horizon: sunset glow and slow waves at the foot */
+.sidebar { background: radial-gradient(520px 240px at 50% 112%, rgba(245, 158, 59, 0.30), transparent 70%), radial-gradient(420px 320px at 0% 0%, rgba(61, 66, 184, 0.30), transparent 70%), linear-gradient(180deg, #0a1633 0%, #0b0e1f 70%); }
+.sidebar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 64px; pointer-events: none; opacity: 0.55;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 64' preserveAspectRatio='none'><path d='M0 30 Q50 10 100 30 T200 30 T300 30 T400 30 V64 H0Z' fill='%231d4f91' fill-opacity='.35'/><path d='M0 42 Q50 24 100 42 T200 42 T300 42 T400 42 V64 H0Z' fill='%23245fae' fill-opacity='.3'/></svg>") repeat-x; background-size: 200% 100%; animation: waves 14s linear infinite; }
+@keyframes waves { to { background-position: -200% 0; } }
+.sidebar > * { position: relative; z-index: 1; }
+@media (max-width: 820px) { .sidebar::after { display: none; } }
+
+/* hero: sunset horizon + a rotating lighthouse beam */
+.hero { background: radial-gradient(700px 260px at 95% -30%, rgba(245, 180, 80, 0.42), transparent 60%), radial-gradient(520px 300px at 0% 125%, rgba(245, 120, 50, 0.38), transparent 65%), linear-gradient(135deg, #0a1633 0%, #16296b 100%); }
+.hero-beam { position: absolute; right: 7%; top: 14%; width: 420px; height: 420px; margin: -210px -210px 0 0; pointer-events: none; z-index: 1; mix-blend-mode: screen; opacity: 0.85;
+  background: conic-gradient(from 0deg, transparent 0 338deg, rgba(255, 222, 140, 0.0) 338deg, rgba(255, 222, 140, 0.45) 352deg, rgba(255, 246, 210, 0.7) 360deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 68%); mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 68%); animation: heroBeam 11s linear infinite; }
+@keyframes heroBeam { to { transform: rotate(360deg); } }
+.hero:hover .hero-beam { animation-duration: 3.5s; }
+@media (max-width: 820px) { .hero-beam { opacity: 0.45; right: -8%; } }
+@media (prefers-reduced-motion: reduce) { .sidebar::after, .hero-beam, .brand:hover .lh-beam, .brand:hover .lh-flare { animation: none !important; } }
