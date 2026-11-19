@@ -1068,7 +1068,11 @@ function sayText(text) {
 const slugOf = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 let packCache = null;
 async function packKeys(force) {
-  if (!packCache || force) packCache = api('/api/voicepack').then((j) => j.keys).catch(() => ({}));
+  if (!packCache || force)
+    packCache = Promise.all([
+      fetch('/voicepack/index.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      api('/api/voicepack').then((j) => j.keys).catch(() => ({})),
+    ]).then(([shipped, mine]) => ({ ...Object.fromEntries(Object.keys(shipped).map((k) => [k, 's1'])), ...mine }));
   return packCache;
 }
 function lineParts(r) {
@@ -1090,7 +1094,7 @@ const bufCache = new Map();
 async function clipBuffer(key, v) {
   const id = key + ':' + v;
   if (!bufCache.has(id)) {
-    bufCache.set(id, fetch('/api/voicepack/' + key + '?v=' + v).then((r) => r.arrayBuffer()).then((b) => audioCtx.decodeAudioData(b)));
+    bufCache.set(id, fetch(String(v).startsWith('s') ? '/voicepack/' + key + '.wav?v=' + v : '/api/voicepack/' + key + '?v=' + v).then((r) => r.arrayBuffer()).then((b) => audioCtx.decodeAudioData(b)));
   }
   return bufCache.get(id);
 }
