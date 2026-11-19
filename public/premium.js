@@ -124,11 +124,22 @@
       tick(t0);
     });
   }
+
+  // Animated lighthouse in the greeting panel: the lamp turns, the beams sweep across, and on hover they follow the pointer.
+  const LH_SCENE = '<div class="hero-lh" aria-hidden="true"><i class="beam a"></i><i class="beam b"></i><i class="flare"></i>' +
+    '<svg viewBox="0 0 120 220"><defs><linearGradient id="lhg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6d2"/><stop offset="1" stop-color="#f5b83c"/></linearGradient></defs>' +
+    '<path d="M6 220 Q18 198 38 194 L82 194 Q102 198 114 220Z" fill="#0a1224"/><path d="M26 206 Q40 196 60 196 Q84 196 98 206" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1.5"/>' +
+    '<polygon points="42,196 78,196 70,70 50,70" fill="#e9edf7"/>' +
+    '<polygon points="48.2,98 71.8,98 73.1,118 46.9,118" fill="#1d2a5c"/><polygon points="45.2,146 74.8,146 76.1,166 43.9,166" fill="#1d2a5c"/>' +
+    '<rect x="57" y="124" width="6" height="11" rx="3" fill="#f5c76a"/><rect x="57" y="174" width="6" height="11" rx="3" fill="#f5c76a"/><rect x="57" y="78" width="6" height="11" rx="3" fill="#f5c76a"/>' +
+    '<rect x="43" y="63" width="34" height="7" rx="1.5" fill="#1b2342"/><path d="M45 63v-6M52 63v-6M60 63v-6M68 63v-6M75 63v-6" stroke="#1b2342" stroke-width="1.4"/>' +
+    '<rect x="50" y="40" width="20" height="22" rx="2" fill="url(#lhg)" class="lamp"/><path d="M47 41 Q60 20 73 41Z" fill="#1b2342"/><path d="M60 22V12" stroke="#1b2342" stroke-width="2"/></svg>' +
+    '<span class="waves"></span></div>';
   const ART = '<svg class="hero-art" viewBox="0 0 520 220" preserveAspectRatio="xMaxYMax slice" aria-hidden="true"><defs><linearGradient id="gl" x1="0" x2="1"><stop offset="0" stop-color="#d9b97a" stop-opacity="0"/><stop offset=".5" stop-color="#e9d3a0"/><stop offset="1" stop-color="#fff3d1"/></linearGradient><linearGradient id="gf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b97a" stop-opacity=".22"/><stop offset="1" stop-color="#d9b97a" stop-opacity="0"/></linearGradient></defs><path class="fill" d="M0 190 C70 170 110 150 170 140 S270 90 330 100 S440 40 520 20 L520 220 L0 220Z" fill="url(#gf)"/><path class="ln c" d="M0 205 C90 190 150 175 210 168 S330 140 400 120 S480 90 520 80" stroke="rgba(255,255,255,.18)" stroke-width="1.5"/><path class="ln b" d="M0 198 C80 176 140 165 200 150 S300 112 370 108 S470 62 520 44" stroke="rgba(217,185,122,.45)" stroke-width="1.5"/><path class="ln" d="M0 190 C70 170 110 150 170 140 S270 90 330 100 S440 40 520 20" stroke="url(#gl)" stroke-width="2.4"/><circle class="dot" cx="330" cy="100" r="4.5" fill="#fff3d1"/><circle class="dot" cx="440" cy="52" r="3.5" fill="#e9d3a0"/></svg>';
   function heroArt() {
     document.querySelectorAll('#view .hero').forEach((h) => {
       if (h.querySelector('.hero-art')) return;
-      h.insertAdjacentHTML('afterbegin', ART + '<span class="hero-beam" aria-hidden="true"></span>');
+      h.insertAdjacentHTML('afterbegin', ART + LH_SCENE);
     });
   }
   function navInd() {
@@ -153,6 +164,28 @@
     mark.classList.add('tracking');
     mark.style.setProperty('--ang', ang + 'deg');
   }, { passive: true });
+  document.addEventListener('pointermove', (e) => {
+    const hero = e.target.closest && e.target.closest('.hero');
+    document.querySelectorAll('.hero-lh.tracking').forEach((l) => { if (!hero || !hero.contains(l)) l.classList.remove('tracking'); });
+    if (!hero || reduce) return;
+    const lh = hero.querySelector('.hero-lh');
+    if (!lh) return;
+    const r = lh.getBoundingClientRect();
+    const ang = Math.atan2(e.clientY - (r.top + r.height * 0.232), e.clientX - (r.left + r.width * 0.5)) * 180 / Math.PI;
+    lh.classList.add('tracking');
+    lh.style.setProperty('--ang', ang + 'deg');
+  }, { passive: true });
+  // 3D tilt on team cards
+  document.addEventListener('pointermove', (e) => {
+    const c = e.target.closest && e.target.closest('.tm-card');
+    if (!c || reduce) return;
+    if (!c.querySelector('.glare')) c.insertAdjacentHTML('beforeend', '<span class="glare"></span>');
+    const r = c.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5, py = (e.clientY - r.top) / r.height - 0.5;
+    c.style.setProperty('--ry', (px * 7).toFixed(2) + 'deg');
+    c.style.setProperty('--rx', (-py * 7).toFixed(2) + 'deg');
+  }, { passive: true });
+  document.addEventListener('pointerout', (e) => { const c = e.target.closest && e.target.closest('.tm-card'); if (c && !c.contains(e.relatedTarget)) { c.style.removeProperty('--rx'); c.style.removeProperty('--ry'); } });
   document.addEventListener('pointermove', (e) => {
     const el = e.target.closest && e.target.closest('.kpi, .tm-card, .hero');
     if (!el) return;

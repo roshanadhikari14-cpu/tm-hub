@@ -13,6 +13,8 @@ const { tmEmail, teamEmail, SLOT } = require('./lib/emails');
 const G = require('./lib/google');
 const auth = require('./lib/auth');
 const persist = require('./lib/persist');
+const Parents = require('./lib/parents');
+const Access = require('./lib/access');
 const { DATA, CLOUD } = require('./lib/paths');
 
 const ROOT = __dirname;
@@ -282,10 +284,9 @@ app.use(express.json({ limit: '6mb' }));
 // On the internet every data route needs a Google login; on your own PC it does not.
 const GATED = CLOUD || Boolean(process.env.REQUIRE_LOGIN);
 const ownerEmail = () => (process.env.OWNER_EMAIL || '').trim().toLowerCase();
-const mayLogin = (email) => {
-  const list = (process.env.ALLOWED_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  return G.allowed(email) && (!list.length || list.includes(email) || email === ownerEmail());
-};
+const extraAllowed = () => (process.env.ALLOWED_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const accessOf = (email) => Access.roleOf(email, { owner: ownerEmail(), team: team(), extra: extraAllowed() });
+const mayLogin = (email) => G.allowed(email) && accessOf(email).role !== null;
 const isOwner = (req) => !GATED || Boolean(req.user && req.user === ownerEmail());
 let lastPull = 0;
 app.use(async (req, res, next) => {
@@ -319,14 +320,27 @@ app.use(async (req, res, next) => {
   }
   const u = auth.user(req);
   req.user = u && mayLogin(u) ? u : null;
+  const acc = req.user ? accessOf(req.user) : { role: null, tm: '' };
+  req.role = GATED ? acc.role : 'owner';
+  req.myTm = acc.tm || '';
   if (GATED && req.path.startsWith('/api/') && !req.path.startsWith('/api/cron/') && !req.user)
     return res.status(401).json({ error: 'Please sign in.', login: true, clientReady: G.clientReady(), domain: G.DOMAIN });
   next();
 });
 // Sending mail and changing settings is for the owner only.
-app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout'], (req, res, next) =>
+app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/drive-check', '/api/email-check'], (req, res, next) =>
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
+// A TM sees only their own students; other approved people see no student data.
+app.use(['/api/students.csv', '/api/parents'], (req, res, next) => {
+  if (req.role === 'owner') return next();
+  if (req.role === 'tm') {
+    req.query = { ...req.query, tm: req.myTm };
+    return next();
+  }
+  res.status(403).json({ error: 'Not allowed.' });
+});
+app.use('/api/ptm-report', (req, res, next) => (req.role === 'viewer' ? res.status(403).json({ error: 'Not allowed.' }) : next()));
 app.use(express.static(path.join(ROOT, 'public')));
 
 const status = (req) => {
@@ -339,6 +353,9 @@ const status = (req) => {
     storage: !CLOUD || persist.enabled,
     user: req ? req.user : null,
     owner: req ? isOwner(req) : true,
+    role: req ? req.role || 'owner' : 'owner',
+    myTm: req ? req.myTm || '' : '',
+    pendingAccess: req && isOwner(req) ? Access.list().pending.length : 0,
     lighthouse: Boolean(process.env.LIGHTHOUSE_AUTH || process.env.LIGHTHOUSE_COOKIE),
     ai: Boolean(process.env.ANTHROPIC_API_KEY),
     reportFolder: loadConfig().reportFolder,
@@ -432,7 +449,7 @@ app.get('/api/board', async (req, res) => {
     if ((!A || A.date !== istNow().date) && (process.env.LIGHTHOUSE_AUTH || process.env.LIGHTHOUSE_COOKIE)) await refresh().catch(() => {});
   }
   const b = board(req.query.slot);
-  res.json({ status: status(req), tasks: M.TASKS, score: M.SCORE, board: b });
+  res.json({ status: status(req), tasks: M.TASKS, score: M.SCORE, board: Access.scrubBoard(b, req.role || 'owner', req.myTm) });
 });
 
 // PTMs: today's schedule and each TM's meetings this month (and the last 30 days).
@@ -467,6 +484,7 @@ app.get('/api/ptm', async (req, res) => {
   } catch (e) {
     return res.status(502).json({ error: `Could not load PTMs from Lighthouse: ${e.message}` });
   }
+  if (req.role === 'viewer') return res.status(403).json({ error: 'Not allowed.' });
   const tms = team().map((m) => ({ name: m.name, lh: m.lighthouseName || m.name, old: m.oldName || '' }));
   const tmOf = (host) => {
     const t = tms.find((x) => [x.name, x.lh, x.old].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
@@ -478,8 +496,8 @@ app.get('/api/ptm', async (req, res) => {
     to,
     monthStart,
     fetchedAt: new Date(data.at).toISOString(),
-    team: tms.map((t) => t.name),
-    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host) })),
+    team: tms.map((t) => t.name).filter((n) => req.role !== 'tm' || n === req.myTm),
+    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host) })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
   });
 });
 
@@ -499,6 +517,7 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     }
   }
   const tmName = (team().find((m) => (m.lighthouseName || m.name) === tmLh) || {}).name || tmLh;
+  if (req.role !== 'owner' && !(req.role === 'tm' && student && tmName === req.myTm)) return res.status(403).json({ error: 'You can only open your own students.' });
   // Open tasks on this student today, from the same board the mails use.
   const tasks = [];
   const b = board();
@@ -523,7 +542,13 @@ app.get('/api/ptm/student/:id', async (req, res) => {
       return { ...m, parentMinutes: h ? h.parentMinutes : null, parentJoined: h ? h.parentJoined : null, with: h ? h.with : [], recording: h ? h.recording : false };
     })
     .sort((a, b) => String(b.start).localeCompare(String(a.start)));
-  res.json({ id, tm: tmName, student, tasks, ptms, error, crm: link });
+  let parents = [];
+  try {
+    parents = (await Parents.ensure([id]))[id] || [];
+  } catch (e) {
+    error = error || e.message;
+  }
+  res.json({ id, tm: tmName, student, tasks, ptms, parents, error, crm: link });
 });
 
 // ---------- Create PTM report (4 steps, run one after another by the browser) ----------
@@ -570,6 +595,7 @@ app.post('/api/ai-key', (req, res) => {
 });
 
 app.get('/api/tm/:name', (req, res) => {
+  if (req.role !== 'owner' && !(req.role === 'tm' && req.params.name === req.myTm)) return res.status(403).json({ error: 'You can only open your own profile.' });
   const b = board(req.query.slot);
   if (!b) return res.status(404).json({ error: 'No data yet. Click Refresh.' });
   const row = b.rows.find((r) => r.name === req.params.name);
@@ -582,11 +608,24 @@ app.get('/api/tm/:name', (req, res) => {
     .sort()
     .map((d) => ({ date: d, ...(hist[d][row.name] || hist[d][old] || {}) }))
     .filter((h) => h.score !== undefined);
-  res.json({ tasks: M.TASKS, row, slot: b.slot, monthStart: A.monthStart || null, dataDate: A.date, students: (A.students && A.students[row.lighthouseName]) || [], history, team: b.rows.map((r) => ({ name: r.name, score: r.perf.score })) });
+  res.json({ tasks: M.TASKS, row, slot: b.slot, monthStart: A.monthStart || null, dataDate: A.date, students: (A.students && A.students[row.lighthouseName]) || [], history, team: b.rows.map((r) => ({ name: req.role === 'owner' || r.name === req.myTm ? r.name : 'Team member', score: r.perf.score })) });
+});
+
+// Parent / guardian names and numbers for one TM's students (?tm=Name).
+app.get('/api/parents', async (req, res) => {
+  try {
+    const A = loadLatest() || {};
+    const m = team().find((x) => x.name === req.query.tm);
+    if (!m) return res.status(400).json({ error: 'Unknown TM.' });
+    const ids = ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id);
+    res.json({ parents: await Parents.ensure(ids) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Student data as CSV: one TM (?tm=Name) or the whole team.
-app.get('/api/students.csv', (req, res) => {
+app.get('/api/students.csv', async (req, res) => {
   const A = loadLatest();
   if (!A) return res.status(404).send('No data yet. Click Refresh.');
   const q = (v) => {
@@ -595,14 +634,25 @@ app.get('/api/students.csv', (req, res) => {
   };
   const day = (d) => (d ? istDate(new Date(d)) : '');
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : '');
-  const head = ['TM', 'Student ID', 'Student', 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
+  const head = ['TM', 'Student ID', 'Student', 'Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone', 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
   const lines = [head.map(q).join(',')];
+  const wanted = team().filter((m) => !req.query.tm || req.query.tm === m.name);
+  let P = {};
+  try {
+    P = await Parents.ensure(wanted.flatMap((m) => ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id)));
+  } catch (e) {
+    console.log('[parents]', e.message);
+  }
+  const par = (s, i) => {
+    const g = (P[s.id] || [])[i] || {};
+    return [g.name || '', g.relation || '', g.phone || ''];
+  };
   for (const m of team()) {
     if (req.query.tm && req.query.tm !== m.name) continue;
     for (const s of (A.students && A.students[M.lhName(m)]) || []) {
       const a = s.att || {};
       lines.push(
-        [m.name, s.id, s.name, s.grade, s.school, s.batch, s.oneOnOne ? 'Yes' : 'No', s.lapsed ? 'Yes' : 'No', day(s.joinedAt), a.regHeld ?? '', a.regAttended ?? '', a.regHeld ? pct(a.regAttended, a.regHeld) : '', a.allHeld ?? '', a.allAttended ?? '', a.streak ?? '', day(a.lastAttended), a.onHoliday ? 'Yes' : 'No', s.greenPct ?? '', s.improvementPct ?? '', s.liftLoad ?? '', day(s.lastContact), s.contacts30 ?? '', day(s.renewal)]
+        [m.name, s.id, s.name, ...par(s, 0), ...par(s, 1), s.grade, s.school, s.batch, s.oneOnOne ? 'Yes' : 'No', s.lapsed ? 'Yes' : 'No', day(s.joinedAt), a.regHeld ?? '', a.regAttended ?? '', a.regHeld ? pct(a.regAttended, a.regHeld) : '', a.allHeld ?? '', a.allAttended ?? '', a.streak ?? '', day(a.lastAttended), a.onHoliday ? 'Yes' : 'No', s.greenPct ?? '', s.improvementPct ?? '', s.liftLoad ?? '', day(s.lastContact), s.contacts30 ?? '', day(s.renewal)]
           .map(q)
           .join(',')
       );
@@ -723,6 +773,56 @@ function startGoogle(req, res, mode) {
     res.status(400).send(page(false, e.message, '/'));
   }
 }
+// ---------- Access requests ----------
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function mailTo(to, subject, html) {
+  const me = senderAddr();
+  if (G.account()) return G.send({ fromName: sender().name, to, subject, html });
+  if (me && smtpConfigured()) return mailer().sendMail({ from: `"${sender().name}" <${me}>`, to, subject, html });
+  throw new Error('No mailbox is connected to send from.');
+}
+async function accessRequestPage(req, who) {
+  const st = accessOf(who.email).status;
+  if (st === 'denied') return page(false, `Access for ${who.email} was not approved. Please contact ${ownerEmail() || 'the owner'}.`, '/');
+  const isNew = Access.request(who.email, who.name);
+  if (isNew && ownerEmail()) {
+    const tok = (action) => auth.sign({ a: action, e: who.email, exp: Date.now() + 14 * 86400000 });
+    const link = (action) => `${baseUrl(req)}/auth/decide?a=${action}&t=${encodeURIComponent(tok(action))}`;
+    const html = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px"><h2 style="margin:0 0 8px">Access request: Lighthouse V2</h2><p><b>${esc(who.name || who.email)}</b> (${esc(who.email)}) signed in and is asking for access.</p><p>Approved people see the overall team numbers only. TMs in your team list see their own tasks and students.</p><p><a href="${link('approve')}" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Review and approve</a> &nbsp; <a href="${link('deny')}" style="color:#b83223">Review and deny</a></p><p style="color:#777;font-size:12px">You can also approve or remove people any time in Settings → Access.</p></div>`;
+    try {
+      await mailTo(ownerEmail(), `Access request: ${who.name || who.email}`, html);
+    } catch (e) {
+      console.log('[access] could not mail the owner:', e.message);
+    }
+  }
+  return page(true, `Thanks ${esc(who.name || '')}. Your request for access was sent to ${esc(ownerEmail() || 'the owner')}. You will be able to sign in once it is approved.`, '/');
+}
+const decidePage = (inner) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Lighthouse V2</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#f6f3ec;display:grid;place-items:center;min-height:100vh;margin:0"><div style="background:#fff;padding:32px 36px;border-radius:16px;max-width:460px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.08)">${inner}</div>`;
+app.get('/auth/decide', (req, res) => {
+  const p = auth.verify(String(req.query.t || ''));
+  if (!p || !p.e) return res.status(400).send(decidePage('<p>This link has expired or is not valid. Open Settings → Access in the hub instead.</p>'));
+  const act = req.query.a === 'deny' ? 'deny' : 'approve';
+  res.send(decidePage(`<h2 style="margin-top:0">${act === 'approve' ? 'Approve' : 'Deny'} access?</h2><p><b>${esc(p.e)}</b></p><form method="post" action="/auth/decide"><input type="hidden" name="t" value="${esc(req.query.t)}"><input type="hidden" name="a" value="${act}"><button style="background:${act === 'approve' ? '#2b2f8f' : '#b83223'};color:#fff;border:0;padding:11px 26px;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer">${act === 'approve' ? 'Yes, approve' : 'Yes, deny'}</button></form>`));
+});
+app.post('/auth/decide', express.urlencoded({ extended: false }), async (req, res) => {
+  const p = auth.verify(String((req.body || {}).t || ''));
+  if (!p || !p.e) return res.status(400).send(decidePage('<p>This link has expired or is not valid.</p>'));
+  const act = (req.body || {}).a === 'deny' ? 'deny' : 'approve';
+  Access.decide(p.e, act, ownerEmail());
+  if (act === 'approve') mailTo(p.e, 'You now have access to Lighthouse V2', `<p>Hi, your access to Lighthouse V2 was approved. Sign in with your UPRIO Google account: <a href="${baseUrl(req)}">${baseUrl(req)}</a></p>`).catch(() => {});
+  res.send(decidePage(`<div style="font-size:40px">${act === 'approve' ? '✅' : '🚫'}</div><p>${esc(p.e)} was ${act === 'approve' ? 'approved' : 'denied'}.</p>`));
+});
+// Settings → Access (owner only; see the guard near the top)
+app.get('/api/access', (req, res) => res.json(Access.list()));
+app.post('/api/access/decide', (req, res) => {
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  if (!G.allowed(email)) return res.status(400).json({ error: `Use an @${G.DOMAIN} address.` });
+  if (!['approve', 'deny', 'remove'].includes(b.action)) return res.status(400).json({ error: 'Unknown action.' });
+  Access.decide(email, b.action, req.user || 'owner');
+  res.json(Access.list());
+});
+
 // Log in to the hub.
 app.get('/auth/login', (req, res) => startGoogle(req, res, 'login'));
 // Connect the mailbox the hub sends from (also asks for permission to send).
@@ -736,7 +836,8 @@ app.get('/auth/google/callback', async (req, res) => {
   try {
     const who = await G.finish(String(req.query.code || ''), String(req.query.state || ''), redirectUri(req), auth.cookies(req).tmhub_oauth);
     auth.setCookie(req, res, 'tmhub_oauth', '', 0);
-    if (!mayLogin(who.email)) throw new Error(`${who.email} is not on the list of people allowed to use this hub.`);
+    if (!G.allowed(who.email)) throw new Error(`${who.email} is not an @${G.DOMAIN} account.`);
+    if (GATED && !mayLogin(who.email)) return res.status(403).send(await accessRequestPage(req, who));
     if (GATED) auth.signIn(req, res, who.email);
     if (who.mode !== 'send') return res.redirect('/');
     if (GATED && who.email !== ownerEmail()) throw new Error(`Only ${ownerEmail() || 'the owner'} can connect the mailbox. You signed in as ${who.email}.`);

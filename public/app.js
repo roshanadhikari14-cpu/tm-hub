@@ -166,9 +166,31 @@ async function load(force) {
   paintChrome();
   return S.data;
 }
+const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'studentreport'], viewer: ['dashboard'] };
+function roleOK(name) {
+  const role = S.status && S.status.role;
+  return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);
+}
 function paintChrome() {
   const st = S.status;
   if (!st) return;
+  const role = st.role || 'owner';
+  $$('.nav a[data-route]').forEach((a) => (a.hidden = !roleOK(a.dataset.route)));
+  const nav = $('.nav');
+  let mine = $('#navMine');
+  if (role === 'tm' && nav) {
+    if (!mine) {
+      mine = document.createElement('a');
+      mine.id = 'navMine';
+      mine.dataset.route = 'tm';
+      mine.innerHTML = '<i></i><span>My profile</span>';
+      const first = nav.querySelector('a[data-route="tasks"]');
+      nav.insertBefore(mine, first || null);
+    }
+    mine.href = '#/tm/' + encodeURIComponent(st.myTm);
+  } else if (mine) mine.remove();
+  const sb = $('.nav a[data-route="settings"]');
+  if (sb) sb.dataset.badge = st.pendingAccess ? String(st.pendingAccess) : '';
   $('#sideStatus').innerHTML = `<small>Last refresh at</small><b>${esc(fmtTime(st.dataAt))}</b>${st.refreshError ? '<small class="err">Last refresh had an error</small>' : ''}`;
   const seg = $('#slotSeg');
   $$('button', seg).forEach((b) => b.classList.toggle('on', b.dataset.slot === S.slot));
@@ -213,6 +235,10 @@ async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   const name = routes[parts[0]] ? parts[0] : 'dashboard';
   const token = ++navToken;
+  if (S.status && !roleOK(name)) {
+    location.hash = '#/dashboard';
+    return;
+  }
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === (name === 'tm' ? 'team' : name)));
   if (token !== navToken) return;
   try {
@@ -271,6 +297,7 @@ function nextSend() {
 }
 // Lighthouse Student Learning Progress: TM process done (Maths and Science), team average and per TM.
 function processTile(b) {
+  if (b.scoped && !b.rows.length) return '';
   const rows = b.rows.map((r) => ({ r, m: (r.perf.metrics.tmprocess || {}).maths, s: (r.perf.metrics.tmprocess || {}).science }));
   const avg = (k) => { const v = rows.map((x) => x[k]).filter((x) => x != null); return v.length ? Math.round(v.reduce((a, c) => a + c, 0) / v.length) : null; };
   const m = avg('m'), s = avg('s');
@@ -282,22 +309,31 @@ function processTile(b) {
     <div class="meta">${s != null ? `Science ${s}% · ` : ''}${low ? `lowest ${esc(low.r.first)} ${low.m}%` : 'Refresh to load'}</div>
     <div class="prog ${crit ? 'red' : ''}"><i data-w="${m || 0}"></i></div></span>`;
 }
+// Weakest scorecard metrics, shown when the pointer rests on the score ring.
+function scorePop(r) {
+  const m = r.perf.metrics || {};
+  const weak = (S.score || [])
+    .filter((x) => m[x.key] && m[x.key].value != null && m[x.key].value < 100)
+    .sort((x, y) => m[x.key].value - m[y.key].value)
+    .slice(0, 3);
+  return `<div class="score-pop"><b>Score ${r.perf.score}</b><small>Weakest areas</small>${weak.length ? weak.map((x) => `<div><span>${esc(x.icon)} ${esc(x.short)}</span><i>${m[x.key].value}%</i></div>`).join('') : '<div><span>All metrics at 100%</span></div>'}</div>`;
+}
 function tmCard(r, i, top = false) {
   const t = r.tasks;
   const open = S.tasks.filter((x) => x.kind === 'list').reduce((a, x) => a + t[x.key].pending, 0);
   return `<a class="card tm-card rise ${gradeClass(r.perf.score)}" style="--i:${i}" href="#/tm/${encodeURIComponent(r.name)}">
     <div class="cover"></div>${top ? magic('ShineBorder', { borderWidth: 2, duration: 10, shineColor: ['#33379e', '#b3b6fa', '#f2b84b'] }) : ''}
     <img class="face" src="${photo(r)}" alt="${esc(r.name)}">
-    <div class="ring-wrap">${ring(r.perf.score)}</div>
+    <div class="ring-wrap">${ring(r.perf.score)}${scorePop(r)}</div>
     <div class="body">
       <div class="name">${esc(r.name)}</div>
       <div class="grade">${esc(r.perf.grade)} · ${r.perf.students} students</div>
       <div class="mini-stats">
-        <div title="Talk time done today (calls + PTMs)"><b>${t.talk.minutes || 0}m</b><span>talk time done</span></div>
-        <div title="PTMs booked for today"><b data-ptmcard="${esc(r.name)}">…</b><span data-ptmsub>PTMs today</span></div>
-        <div><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
-        <div><b>${t.chapters ? t.chapters.pending : 0}</b><span>chapters missing</span></div>
-        <div><b>${t.approvals ? t.approvals.pending : 0}</b><span>approvals pending</span></div>
+        <div class="go" data-go="#/tasks/talk" title="Talk time done today (calls + PTMs). Click for the task board"><b>${t.talk.minutes || 0}m</b><span>talk time done</span></div>
+        <div class="go" data-go="#/ptm" title="PTMs booked for today. Click for the PTM tab"><b data-ptmcard="${esc(r.name)}">…</b><span data-ptmsub>PTMs today</span></div>
+        <div class="go" data-go="#/tasks/ic2" title="Open IC2 bookings"><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
+        <div class="go" data-go="#/tasks/chapters" title="Open chapter planning"><b>${t.chapters ? t.chapters.pending : 0}</b><span>chapters missing</span></div>
+        <div class="go" data-go="#/tasks/approvals" title="Open approvals"><b>${t.approvals ? t.approvals.pending : 0}</b><span>approvals pending</span></div>
         <div title="Student Learning Progress: TM process done (Maths)"><b>${r.perf.metrics.tmprocess && r.perf.metrics.tmprocess.maths != null ? r.perf.metrics.tmprocess.maths + '%' : '—'}</b><span>Maths TM process done</span></div>
         <div><b data-count="${open}">0</b><span>open items</span></div>
       </div>
@@ -331,7 +367,7 @@ async function dashboard() {
   const critTMs = b.rows.filter((r) => r.concerns.length);
   const kpis = S.tasks
     .map((t, i) => {
-      const all = b.rows.map((r) => r.tasks[t.key]);
+      const all = (b.teamRows || b.rows).map((r) => r.tasks[t.key]);
       const sum = (k) => all.reduce((a, s) => a + (s[k] || 0), 0);
       const crit = all.filter((s) => s.status === 'critical').length;
       let val, meta, p;
@@ -360,7 +396,7 @@ async function dashboard() {
       ${bit('Aurora', { colorStops: ['#7c81e8', '#b3b6fa', '#4a4fc4'], amplitude: 1.1, blend: 0.6, speed: 0.6, opacity: 0.55, mouseInteraction: true }, '', 'position:absolute;inset:0;display:block;pointer-events:none')}
       ${magic('BorderBeam', { size: 160, duration: 9, colorFrom: '#b3b6fa', colorTo: '#ffffff', borderWidth: 2 })}
       <div style="position:relative"><h2>${bit('BlurText', { text: `${hello}, ${(st.fromName || 'Roshan').split(' ')[0]} 👋`, delay: 90, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2>
-        <p>${critTMs.length ? `${critTMs.length} of ${b.rows.length} TMs have something that needs attention.` : 'Everything is on track across the team.'}</p>
+        <p>${b.scoped ? (b.rows.length ? 'Your tasks and students are in My profile. The tiles below are the overall team numbers.' : 'Overall team numbers.') : critTMs.length ? `${critTMs.length} of ${b.rows.length} TMs have something that needs attention.` : 'Everything is on track across the team.'}</p>
         <div class="hero-faces" style="margin:16px 0 0 12px">${b.rows.map((r) => `<a href="#/tm/${encodeURIComponent(r.name)}" title="${esc(r.name)}"><img src="${photo(r)}" alt=""></a>`).join('')}</div></div>
       <div class="next-send" style="position:relative"><small>${esc(nx.label)}</small><b>${bit('GradientText', { colors: ['#ffffff', '#b3b6fa', '#ffffff'], animationSpeed: 5 }, esc(nx.value))}</b><small style="margin-top:4px">${st.email ? `from ${esc(st.sender)}` : 'Email not set up yet'}</small></div>
     </div>
@@ -385,11 +421,66 @@ view.addEventListener('click', (e) => {
 });
 
 // ---------- Team ----------
+const teamState = { q: '', filter: 'all', sort: 'score', mode: 'cards' };
 async function team() {
   const b = await load();
   title('Team', b ? `${b.rows.length} tutor managers` : '');
   if (!b) return noData();
-  view.innerHTML = `<div class="toolbar"><span class="note">Click a TM for their profile, performance card and students.</span><span style="flex:1"></span><a class="btn btn-ghost" href="/api/students.csv" download>⬇ Download all students (CSV)</a></div><div class="grid g-team">${b.rows.map((r, i) => tmCard(r, i)).join('')}</div>`;
+  const rows = b.rows;
+  const openOf = (r) => S.tasks.filter((x) => x.kind === 'list').reduce((a, x) => a + r.tasks[x.key].pending, 0);
+  const avg = Math.round(rows.reduce((a, r) => a + r.perf.score, 0) / rows.length);
+  const pushN = rows.filter((r) => /push/i.test(r.perf.grade)).length;
+  const concN = rows.filter((r) => r.concerns.length).length;
+  const openN = rows.reduce((a, r) => a + openOf(r), 0);
+  const talkN = rows.reduce((a, r) => a + (r.tasks.talk.minutes || 0), 0);
+  const chips = [['all', 'All', rows.length], ['track', 'On track', rows.length - pushN], ['push', 'Needs a push', pushN], ['concerns', 'Has concerns', concN]];
+  view.innerHTML = `
+    <div class="team-sum">
+      <button class="ts rise" style="--i:0" data-f="all"><div class="ts-ring">${ring(avg)}</div><div><b>Team score</b><small>average of ${rows.length} TMs</small></div></button>
+      <button class="ts rise" style="--i:1" data-f="push"><div class="ts-n" data-count="${pushN}">0</div><div><b>Need a push</b><small>click to filter</small></div></button>
+      <button class="ts rise" style="--i:2" data-f="concerns"><div class="ts-n" data-count="${concN}">0</div><div><b>With concerns</b><small>critical items today</small></div></button>
+      <div class="ts rise" style="--i:3"><div class="ts-n" data-count="${openN}">0</div><div><b>Open items</b><small>across the team</small></div></div>
+      <div class="ts rise" style="--i:4"><div class="ts-n" data-count="${talkN}">0</div><div><b>Talk minutes</b><small>done today</small></div></div>
+    </div>
+    <div class="toolbar team-tools">
+      <div class="search"><input id="tmQ" placeholder="Search a TM…" autocomplete="off" value="${esc(teamState.q)}"></div>
+      <div class="chipset" id="tmChips">${chips.map(([k, l, n]) => `<button class="fchip ${teamState.filter === k ? 'on' : ''}" data-f="${k}">${l}<span>${n}</span></button>`).join('')}</div>
+      <select class="sel" id="tmSort"><option value="score">Sort: Score</option><option value="open">Sort: Open items</option><option value="talk">Sort: Talk time</option><option value="proc">Sort: Maths TM process</option><option value="name">Sort: Name</option></select>
+      <div class="seg2" id="tmMode"><button data-m="cards" class="${teamState.mode === 'cards' ? 'on' : ''}" title="Cards">▦ Cards</button><button data-m="rank" class="${teamState.mode === 'rank' ? 'on' : ''}" title="Leaderboard">☰ Ranking</button></div>
+      <span style="flex:1"></span><a class="btn btn-ghost" href="/api/students.csv" download>⬇ All students + parents (CSV)</a>
+    </div>
+    <div id="tmGrid"></div>`;
+  $('#tmSort').value = teamState.sort;
+  const paint = () => {
+    const q = teamState.q.trim().toLowerCase();
+    let list = rows.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (teamState.filter === 'all' || (teamState.filter === 'push' && /push/i.test(r.perf.grade)) || (teamState.filter === 'track' && !/push/i.test(r.perf.grade)) || (teamState.filter === 'concerns' && r.concerns.length)));
+    const proc = (r) => (r.perf.metrics.tmprocess && r.perf.metrics.tmprocess.maths) ?? -1;
+    const key = { score: (r) => -r.perf.score, open: (r) => -openOf(r), talk: (r) => -(r.tasks.talk.minutes || 0), proc: (r) => -proc(r), name: (r) => r.name }[teamState.sort];
+    list = [...list].sort((x, y) => (key(x) > key(y) ? 1 : key(x) < key(y) ? -1 : 0));
+    $('#tmGrid').innerHTML = !list.length
+      ? '<div class="card empty">No TM matches. Clear the search or pick another filter.</div>'
+      : teamState.mode === 'rank'
+        ? `<div class="rank-list">${list
+            .map((r, i) => `<a class="rank-row rise" style="--i:${i}" href="#/tm/${encodeURIComponent(r.name)}"><span class="rk">${i + 1}</span><img src="${photo(r)}" alt=""><span class="rn"><b>${esc(r.name)}</b><small>${esc(r.perf.grade)} · ${r.perf.students} students · ${openOf(r)} open · Maths TM process ${proc(r) < 0 ? '—' : proc(r) + '%'}</small></span><span class="rbar"><i data-w="${r.perf.score}" class="${gradeClass(r.perf.score)}"></i></span><span class="rs">${r.perf.score}</span></a>`)
+            .join('')}</div>`
+        : `<div class="grid g-team">${list.map((r, i) => tmCard(r, i)).join('')}</div>`;
+    animate();
+  };
+  paint();
+  $('#tmQ').oninput = (e) => ((teamState.q = e.target.value), paint());
+  $('#tmSort').onchange = (e) => ((teamState.sort = e.target.value), paint());
+  const setFilter = (f) => {
+    teamState.filter = f;
+    $$('#tmChips .fchip').forEach((c) => c.classList.toggle('on', c.dataset.f === f));
+    paint();
+  };
+  $$('#tmChips .fchip').forEach((c) => (c.onclick = () => setFilter(c.dataset.f)));
+  $$('.team-sum [data-f]').forEach((c) => (c.onclick = () => setFilter(c.dataset.f)));
+  $$('#tmMode button').forEach((c) => (c.onclick = () => {
+    teamState.mode = c.dataset.m;
+    $$('#tmMode button').forEach((x) => x.classList.toggle('on', x === c));
+    paint();
+  }));
 }
 
 // ---------- TM profile ----------
@@ -427,6 +518,18 @@ function sparkline(history) {
     <div class="note" style="display:flex;justify-content:space-between"><span>${esc(pts[0].date.slice(5))}</span><span>Score trend, last ${pts.length} days</span><span>${esc(pts[pts.length - 1].date.slice(5))}</span></div>`;
 }
 let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
+// Parent / guardian name + number, filled in from /api/parents after the students tab opens.
+const parentMap = {};
+const telLink = (p) => (p ? `<a class="tel" href="tel:${esc(String(p).replace(/[^+d]/g, ''))}">${esc(p)}</a>` : '');
+function parentCell(id) {
+  const g = parentMap[id];
+  if (!g) return '<span style="color:var(--ink-3)">…</span>';
+  if (!g.length) return '<span style="color:var(--ink-3)">Not in Lighthouse</span>';
+  return g
+    .slice(0, 2)
+    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}<br>${telLink(x.phone) || '<small style="color:var(--ink-3)">No number</small>'}</div>`)
+    .join('');
+}
 function studentRows(students) {
   const f = stuState;
   let list = students.filter((s) => {
@@ -464,6 +567,7 @@ function studentRows(students) {
               : '<span style="color:var(--green);font-weight:600">Attending</span>';
         return `<tr class="${nc || (a && a.streak >= 3) || (typeof s.greenPct === 'number' && s.greenPct < 40) ? 'flag' : ''}"><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${s.id}`, esc(s.name))}</b>${s.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${s.oneOnOne ? ' <span class="tag">1:1</span>' : ''}</td>
+          <td class="par-cell" data-par="${s.id}">${parentCell(s.id)}</td>
           <td class="num">${esc(s.grade ?? '—')}</td>
           <td>${lhLink(s.schoolId ? `https://lighthouse.uprio.com/school-planning/v2/${s.schoolId}?grade=${encodeURIComponent(s.grade ?? '')}` : '', esc(s.school || '—'))}<br><small style="color:var(--ink-3)">${esc((s.batch || '').split('|')[0])}</small></td>
           <td style="white-space:nowrap">${attCell}</td><td style="white-space:nowrap">${absCell}</td>
@@ -550,16 +654,17 @@ async function tm([name, focus]) {
           <select class="sel" id="stuF"><option value="all">All students</option><option value="low">Green below 60%</option><option value="nc15">Not contacted 15+ days</option><option value="absent">Absent 3+ class days</option><option value="lowatt">Regular attendance below 70%</option><option value="one">1:1 students</option><option value="lapsed">Subscription lapsed</option></select>
           <span class="note" id="stuN"></span>
           <a class="btn btn-ghost" href="/api/students.csv?tm=${encodeURIComponent(r.name)}" download>⬇ Download CSV</a></div>
-        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th><th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th class="sort" data-s="renewal">Next renewal</th></tr></thead><tbody id="stuBody"></tbody></table></div>
+        <div class="table-wrap" style="max-height:70vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th class="sort asc" data-s="name">Student</th><th>Parent / phone</th><th class="sort num" data-s="grade">Class</th><th>School / batch</th><th class="sort" data-s="att">Regular attendance<br><small style="font-weight:500">${esc(monthLabel)}</small></th><th class="sort" data-s="streak">Absent for</th><th class="sort" data-s="green">Green %</th><th class="sort" data-s="imp">Improvement</th><th class="sort num" data-s="lift">IC2 load</th><th class="sort" data-s="contact">Last contact</th><th class="sort" data-s="renewal">Next renewal</th></tr></thead><tbody id="stuBody"></tbody></table></div>
       </div>
     </div>`;
 
   const paintStudents = () => {
     const o = studentRows(j.students);
-    $('#stuBody').innerHTML = o.html || '<tr><td colspan="11" class="empty">No students match</td></tr>';
+    $('#stuBody').innerHTML = o.html || '<tr><td colspan="12" class="empty">No students match</td></tr>';
     $('#stuN').textContent = `${o.count} shown`;
   };
   paintStudents();
+  api(`/api/parents?tm=${encodeURIComponent(r.name)}`).then((p) => { Object.assign(parentMap, p.parents || {}); paintStudents(); }).catch(() => {});
   $('#stuQ').oninput = (e) => ((stuState.q = e.target.value), paintStudents());
   $('#stuF').onchange = (e) => ((stuState.filter = e.target.value), paintStudents());
   $$('#ptab-students th.sort').forEach(
@@ -768,12 +873,54 @@ async function schedule() {
 }
 
 // ---------- Settings ----------
+const accessRow = (p, acts) => `<div class="acc-row"><div><b>${esc(p.name || p.email)}</b><small>${esc(p.email)}${p.at ? ' · ' + esc(new Date(p.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })) : ''}</small></div><div class="acc-act">${acts}</div></div>`;
+async function paintAccess() {
+  const box = $('#accessBody');
+  if (!box) return;
+  let j;
+  try {
+    j = await api('/api/access');
+  } catch (e) {
+    box.textContent = e.message;
+    return;
+  }
+  const btn = (act, email, label, cls) => `<button class="btn ${cls}" data-acc="${act}" data-email="${esc(email)}">${label}</button>`;
+  box.classList.remove('note');
+  box.innerHTML = `
+    <h4 class="acc-h">Waiting for your approval <span class="tag ${j.pending.length ? 'red' : ''}">${j.pending.length}</span></h4>
+    ${j.pending.length ? j.pending.map((p) => accessRow(p, btn('approve', p.email, 'Approve', 'btn-primary') + btn('deny', p.email, 'Deny', 'btn-ghost'))).join('') : '<p class="note" style="margin:4px 0 14px">No requests right now.</p>'}
+    <h4 class="acc-h">Approved <span class="tag">${j.approved.length}</span></h4>
+    ${j.approved.length ? j.approved.map((p) => accessRow(p, btn('remove', p.email, 'Remove', 'btn-ghost'))).join('') : '<p class="note" style="margin:4px 0 14px">Nobody added yet.</p>'}
+    ${j.denied.length ? `<h4 class="acc-h">Denied <span class="tag">${j.denied.length}</span></h4>${j.denied.map((p) => accessRow(p, btn('approve', p.email, 'Approve now', 'btn-ghost') + btn('remove', p.email, 'Clear', 'btn-ghost'))).join('')}` : ''}
+    <div class="acc-add"><input id="accNew" type="email" placeholder="Add someone: name@uprio.com"><button class="btn btn-primary" data-acc="approve" data-email="__new">Approve</button></div>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-acc]');
+  if (!b) return;
+  let email = b.dataset.email;
+  if (email === '__new') {
+    email = ($('#accNew').value || '').trim().toLowerCase();
+    if (!email) return toast('Type an email first.', 'err');
+  }
+  b.disabled = true;
+  try {
+    await api('/api/access/decide', { body: { email, action: b.dataset.acc } });
+    toast(b.dataset.acc === 'approve' ? 'Approved' : b.dataset.acc === 'deny' ? 'Denied' : 'Removed', 'ok');
+    S.status = await api('/api/status');
+    paintChrome();
+    paintAccess();
+  } catch (err) {
+    b.disabled = false;
+    toast(err.message, 'err');
+  }
+});
 async function settings() {
   await load(true);
   const st = S.status;
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
+    <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
     <div class="card rise" style="margin-bottom:18px"><h3>📄 PTM reports</h3><div class="sub">Student reports are free and need no key. The Claude key below is optional (nicer wording); the Drive folder is an optional copy for the owner.</div>
       <div class="ai-grid">
         <div><small>Claude API key</small><b>${st.ai ? '✓ Saved' : 'Not added yet'}</b><input id="aiKey" type="password" autocomplete="off" placeholder="${st.ai ? 'Paste a new key to replace it' : 'Paste the key (starts with sk-ant-)'}"></div>
@@ -874,6 +1021,7 @@ async function settings() {
       btn.disabled = false;
     }
   };
+  paintAccess();
 }
 
 // ---------- start ----------
@@ -1420,7 +1568,12 @@ async function openPtmPanel(meetingId) {
           .join('')}</div>`
       : '<p class="note" style="margin:0">No PTMs found.</p>'
   }</div>`;
-  $('.drawer-body', dr).innerHTML = meeting + profile + tasks + hist;
+  const fam = `<div class="dsec"><h4>Parents / guardians <span class="ptag blue">${(j.parents || []).length}</span></h4>${
+    (j.parents || []).length
+      ? `<div class="dlist">${j.parents.map((g) => `<div class="it"><div class="when">${esc(g.relation || 'Guardian')}${g.primary ? '<small>Primary contact</small>' : ''}</div><div class="what"><b>${esc(g.name || '—')}</b><br>${telLink(g.phone) || '<small style="color:var(--ink-3)">No number</small>'}${g.email ? `<br><small style="color:var(--ink-3)">${esc(g.email)}</small>` : ''}</div></div>`).join('')}</div>`
+      : '<p class="note" style="margin:0">No parent details found in Lighthouse.</p>'
+  }</div>`;
+  $('.drawer-body', dr).innerHTML = meeting + fam + profile + tasks + hist;
 }
 document.addEventListener('click', (e) => {
   const row = e.target.closest && e.target.closest('.ptm-row');
@@ -1569,6 +1722,13 @@ async function createPtmReport(studentId, month, win) {
   }
 }
 document.addEventListener('click', (e) => {
+  const tile = e.target.closest && e.target.closest('.mini-stats .go');
+  if (tile) {
+    e.preventDefault();
+    e.stopPropagation();
+    location.hash = tile.dataset.go;
+    return;
+  }
   const go = e.target.closest && e.target.closest('#rpGo, [data-report]');
   if (!go) return;
   e.preventDefault();
