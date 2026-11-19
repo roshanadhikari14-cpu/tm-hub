@@ -8,7 +8,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
-      "includeFiles": "{team.json,node_modules/@sparticuz/chromium/bin/**,node_modules/pdfjs-dist/legacy/build/**,node_modules/pdfjs-dist/package.json,node_modules/jpeg-js/**}",
+      "includeFiles": "{team.json,voicepack-seed/**,node_modules/@sparticuz/chromium/bin/**,node_modules/pdfjs-dist/legacy/build/**,node_modules/pdfjs-dist/package.json,node_modules/jpeg-js/**}",
       "memory": 2048
     }
   },

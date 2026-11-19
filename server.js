@@ -614,18 +614,19 @@ app.get('/api/tm/:name', (req, res) => {
 
 // Voice pack: short clips of the owner's own voice (names, numbers, phrases) that the hover read-out stitches together.
 const PACK = path.join(DATA, 'voicepack');
+const PACK_SEED = path.join(ROOT, 'voicepack-seed'); // clips shipped with the app (the owner's cloned voice); recordings in PACK win
 const packKey = (k) => (/^[a-z0-9-]{1,40}$/.test(String(k)) ? String(k) : null);
 app.get('/api/voicepack', (req, res) => {
   const out = {};
   try {
-    for (const f of fs.readdirSync(PACK)) if (f.endsWith('.wav')) out[f.slice(0, -4)] = Math.round(fs.statSync(path.join(PACK, f)).mtimeMs);
+    for (const dir of [PACK_SEED, PACK]) for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (f.endsWith('.wav')) out[f.slice(0, -4)] = Math.round(fs.statSync(path.join(dir, f)).mtimeMs);
   } catch {}
   res.json({ keys: out, owner: isOwner(req) });
 });
 app.get('/api/voicepack/:key', (req, res) => {
   const k = packKey(req.params.key);
-  const f = k && path.join(PACK, k + '.wav');
-  if (!f || !fs.existsSync(f)) return res.status(404).end();
+  const f = k && [path.join(PACK, k + '.wav'), path.join(PACK_SEED, k + '.wav')].find((x) => fs.existsSync(x));
+  if (!f) return res.status(404).end();
   res.setHeader('Content-Type', 'audio/wav');
   res.setHeader('Cache-Control', 'private, max-age=3600');
   res.send(fs.readFileSync(f));
