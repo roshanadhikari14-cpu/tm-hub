@@ -166,7 +166,7 @@ async function load(force) {
   paintChrome();
   return S.data;
 }
-const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'studentreport'], viewer: ['dashboard'] };
+const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students'], viewer: ['dashboard'] };
 function roleOK(name) {
   const role = S.status && S.status.role;
   return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);
@@ -229,7 +229,7 @@ $('#refreshBtn').onclick = async () => {
 };
 
 // ---------- router ----------
-const routes = { dashboard, team, tm, tasks, ptm, studentreport, reports, schedule, settings };
+const routes = { dashboard, team, tm, tasks, ptm, students, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
@@ -272,11 +272,86 @@ function noData() {
   }${st.refreshError ? `<br><span style="color:var(--red)">${esc(st.refreshError)}</span>` : ''}</p></div>`;
 }
 
-// ---------- Student report (any signed-in TM) ----------
-async function studentreport() {
-  title('Student report', 'PTM plan PDF from a student ID');
-  view.innerHTML = reportCard() + '<div class="card rise"><h3>How it works</h3><ol class="note" style="line-height:1.8;padding-left:18px"><li>Type the student ID (the number in the Lighthouse student link).</li><li>Pick the month the plan is for and click <b>Create report</b>.</li><li>Wait about 30 seconds. The PDF downloads by itself; you can also click <b>Download PDF</b>.</li></ol></div>';
+// ---------- All students: details, PTMs of the last 30 days, reports ----------
+const stState = { q: '', tm: 'all', f: 'all', limit: 120 };
+let stRows = [];
+async function students() {
+  title('All students', 'Details, PTMs done in the last 30 days and saved reports');
+  view.innerHTML = '<div class="card empty">Loading students…</div>';
+  let j;
+  try {
+    j = await api('/api/students-all');
+  } catch (err) {
+    view.innerHTML = `<div class="card"><h3>Could not load students</h3><p class="note">${esc(err.message)}</p></div>`;
+    return;
+  }
+  stRows = j.rows;
+  const owner = j.role === 'owner';
+  const tmNames = [...new Set(stRows.map((r) => r.tm))];
+  const m = reportMonths();
+  view.innerHTML = `
+    <div class="toolbar team-tools">
+      <div class="search"><input id="stQ" placeholder="Search ${stRows.length} students by name, school or class…" autocomplete="off" value="${esc(stState.q)}"></div>
+      ${owner ? `<select class="sel" id="stTm"><option value="all">All TMs</option>${tmNames.map((n) => `<option ${stState.tm === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : ''}
+      <div class="chipset" id="stChips">${[['all', 'All'], ['ptm', 'PTM done'], ['noptm', 'No PTM in 30 days'], ['rep', 'Has report']].map(([k, l]) => `<button class="fchip ${stState.f === k ? 'on' : ''}" data-f="${k}">${l}<span data-n="${k}"></span></button>`).join('')}</div>
+      <span style="flex:1"></span>
+      <select class="sel" id="stMonth" title="Month the plan is for">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+      <select class="sel" id="stWin" title="How far back to read"><option value="30">Last 30 days</option><option value="60">Last 60 days</option><option value="all">Since joining</option></select>
+      <a class="btn btn-ghost" href="/api/students.csv${owner ? '' : ''}" download>⬇ CSV</a>
+    </div>
+    <div class="note" style="margin:-6px 0 12px">PTMs done between ${esc(j.from)} and ${esc(j.to)}, with the parent’s time in the meeting. ${j.error ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.error)}</span>` : ''}</div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th>${owner ? '<th>TM</th>' : ''}<th>Parent${owner ? ' / phone' : ''}</th><th>Learning</th><th>PTMs done (30 days)</th><th>PTM report</th></tr></thead><tbody id="stBody"></tbody></table></div><div class="actions" id="stMore" style="justify-content:center;padding:10px"></div></div>`;
+  const shortDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const paint = () => {
+    const q = stState.q.trim().toLowerCase();
+    const base = stRows.filter((r) => (stState.tm === 'all' || r.tm === stState.tm) && (!q || `${r.name} ${r.school} ${r.batch} ${r.grade}`.toLowerCase().includes(q)));
+    const test = { all: () => true, ptm: (r) => r.ptms.length > 0, noptm: (r) => r.ptms.length === 0, rep: (r) => r.reports.length > 0 };
+    $$('#stChips [data-n]').forEach((s) => (s.textContent = base.filter(test[s.dataset.n]).length));
+    const list = base.filter(test[stState.f]);
+    const shown = list.slice(0, stState.limit);
+    $('#stBody').innerHTML = shown
+      .map((r, i) => {
+        const ptm = r.ptms.length
+          ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + p.minutes + 'm' : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
+          : '<span style="color:var(--ink-3)">None</span>';
+        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="Saved ${esc(new Date(x.at).toLocaleString('en-GB'))}">📄 ${esc(shortDate(x.at.slice(0, 10)))}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
+        return `<tr><td class="num">${i + 1}</td>
+          <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b>${r.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${r.oneOnOne ? ' <span class="tag">1:1</span>' : ''}<br><small style="color:var(--ink-3)">Class ${esc(r.grade ?? '—')} · ${esc(r.school || '—')}</small></td>
+          ${owner ? `<td>${esc(r.tm.split(' ')[0])}</td>` : ''}
+          <td class="par-cell">${parentCell(r.id)}</td>
+          <td style="white-space:nowrap"><small style="color:var(--ink-3)">Green</small> <b>${r.greenPct ?? '—'}${typeof r.greenPct === 'number' ? '%' : ''}</b><br><small style="color:var(--ink-3)">Attendance</small> <b>${r.attPct ?? '—'}${r.attPct != null ? '%' : ''}</b></td>
+          <td>${ptm}</td>
+          <td><button class="btn btn-ghost st-rep" data-id="${r.id}" style="padding:6px 10px;font-size:12.5px">📄 Create report</button><div style="margin-top:5px">${reps}</div></td></tr>`;
+      })
+      .join('') || '<tr><td colspan="7" class="empty">No student matches</td></tr>';
+    $('#stMore').innerHTML = list.length > shown.length ? `<button class="btn btn-ghost" id="stAll">Show all ${list.length}</button>` : `<span class="note">${list.length} student${list.length === 1 ? '' : 's'}</span>`;
+    const all = $('#stAll');
+    if (all) all.onclick = () => ((stState.limit = 9999), paint());
+  };
+  paint();
+  $('#stQ').oninput = (e) => ((stState.q = e.target.value), (stState.limit = 120), paint());
+  const sel = $('#stTm');
+  if (sel) sel.onchange = (e) => ((stState.tm = e.target.value), (stState.limit = 120), paint());
+  $$('#stChips .fchip').forEach((b) => (b.onclick = () => {
+    stState.f = b.dataset.f;
+    $$('#stChips .fchip').forEach((x) => x.classList.toggle('on', x === b));
+    paint();
+  }));
+  // parent names (and numbers for the owner) arrive per TM, then fill in
+  Promise.all(tmNames.map((n) => api('/api/parents?tm=' + encodeURIComponent(n)).catch(() => ({ parents: {} })))).then((all) => {
+    for (const p of all) Object.assign(parentMap, p.parents || {});
+    if (location.hash.startsWith('#/students')) paint();
+  });
 }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.st-rep');
+  if (!b) return;
+  const month = ($('#stMonth') && $('#stMonth').value) || reportMonths().pick;
+  createPtmReport(b.dataset.id, month, ($('#stWin') && $('#stWin').value) || '30');
+});
+document.addEventListener('ptm-report-saved', () => {
+  if (location.hash.startsWith('#/students')) setTimeout(() => route(true), 400);
+});
 
 // ---------- Dashboard ----------
 function nextSend() {
@@ -520,7 +595,7 @@ function sparkline(history) {
 let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
 // Parent / guardian name + number, filled in from /api/parents after the students tab opens.
 const parentMap = {};
-const isOwnerUI = () => !S.status || S.status.owner !== false;
+const isOwnerUI = () => true; // parent names show for everyone allowed; numbers only arrive from the server for the owner
 const telLink = (p) => (p ? `<a class="tel" href="tel:${esc(String(p).replace(/[^+d]/g, ''))}">${esc(p)}</a>` : '');
 function parentCell(id) {
   const g = parentMap[id];
@@ -528,7 +603,7 @@ function parentCell(id) {
   if (!g.length) return '<span style="color:var(--ink-3)">Not in Lighthouse</span>';
   return g
     .slice(0, 2)
-    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}<br>${telLink(x.phone) || '<small style="color:var(--ink-3)">No number</small>'}</div>`)
+    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}${x.phone ? `<br>${telLink(x.phone)}` : ''}</div>`)
     .join('');
 }
 function studentRows(students) {
@@ -639,11 +714,11 @@ async function tm([name, focus]) {
       <div class="card rise" style="--i:1"><h3>Performance card</h3><div class="sub">Each metric scored out of 100, weighted into the overall score</div><div class="metric-rows">${metricRows}</div></div>
       <div class="card rise" style="--i:2"><h3>Student outcomes</h3><div class="sub">From the All Students tab</div>
         <div class="quality" style="margin-top:14px;grid-template-columns:repeat(2,1fr)">
-          <div><b><span data-count="${P.students}">0</span></b><span>active students</span></div>
-          <div><b>${P.avgGreen ?? '—'}${P.avgGreen !== null ? '%' : ''}</b><span>avg green (mastery)</span></div>
-          <div><b>${P.avgImprovement ?? '—'}${P.avgImprovement !== null ? '%' : ''}</b><span>avg improvement</span></div>
-          <div style="${P.noContact15 ? 'background:var(--red-bg)' : ''}"><b><span data-count="${P.noContact15}">0</span></b><span>not contacted in 15+ days</span></div>
-          <div style="grid-column:1/-1;${absent3 ? 'background:var(--red-bg)' : ''}"><b><span data-count="${absent3}">0</span></b><span>students absent for 3+ class days in a row</span></div>
+          <div class="go" data-sf="all|name" title="Show all students"><b><span data-count="${P.students}">0</span></b><span>active students</span></div>
+          <div class="go" data-sf="low|green" title="Show students by green %, lowest first"><b>${P.avgGreen ?? '—'}${P.avgGreen !== null ? '%' : ''}</b><span>avg green (mastery)</span></div>
+          <div class="go" data-sf="all|imp" title="Show students by improvement, lowest first"><b>${P.avgImprovement ?? '—'}${P.avgImprovement !== null ? '%' : ''}</b><span>avg improvement</span></div>
+          <div class="go" data-sf="nc15|contact" style="${P.noContact15 ? 'background:var(--red-bg)' : ''}" title="Show students not contacted in 15+ days"><b><span data-count="${P.noContact15}">0</span></b><span>not contacted in 15+ days</span></div>
+          <div class="go" data-sf="absent|name" style="grid-column:1/-1;${absent3 ? 'background:var(--red-bg)' : ''}" title="Show students absent 3+ class days"><b><span data-count="${absent3}">0</span></b><span>students absent for 3+ class days in a row</span></div>
         </div>${sparkline(j.history)}</div>
     </div>
     <div class="section-title"><div class="tabs" id="ptabs"><button class="on" data-tab="tasks">Today's tasks<span class="count">${openCount}</span></button><button data-tab="students">Students<span class="count">${j.students.length}</span></button></div>
@@ -678,6 +753,18 @@ async function tm([name, focus]) {
         paintStudents();
       })
   );
+  // a tile in "Student outcomes" opens the Students tab with that list
+  $$('.quality .go[data-sf]').forEach((t) => (t.onclick = () => {
+    const [f, sort] = t.dataset.sf.split('|');
+    stuState = { q: '', filter: f, sort, dir: sort === 'name' ? 1 : 1 };
+    $('#stuQ').value = '';
+    $('#stuF').value = f;
+    $$('#ptab-students th.sort').forEach((x) => { x.classList.remove('asc', 'desc'); if (x.dataset.s === sort) x.classList.add('asc'); });
+    const tab = $('#ptabs button[data-tab="students"]');
+    if (tab) tab.click();
+    paintStudents();
+    setTimeout(() => $('#ptab-students').scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+  }));
   $('#ptabs').onclick = (e) => {
     const b = e.target.closest('button[data-tab]');
     if (!b) return;
@@ -1486,6 +1573,8 @@ async function ptm() {
   title('PTM', `Parent-teacher meetings · from Lighthouse at ${fmtTime(j.fetchedAt)}`);
   const all = j.meetings;
   const today = all.filter((m) => m.date === j.today);
+  const tomorrowIso = isoShift(j.today, 1);
+  const tomorrow = all.filter((m) => m.date === tomorrowIso);
   const weekStart = isoShift(j.today, -((new Date(`${j.today}T00:00:00Z`).getUTCDay() + 6) % 7));
   const count = (list, st) => list.filter((m) => ptmState(m) === st).length;
   const booked = (list) => list.filter((m) => m.status !== 'cancelled').length;
@@ -1596,6 +1685,8 @@ async function ptm() {
     ${reportCard()}
     <div class="section-title"><h2>Today’s PTM schedule</h2><span>${esc(dayName)} · ${lhLink(CRM + '/parent-meetings', 'Open in Lighthouse')}</span></div>
     <div class="card rise">${today.length ? ptmRows(today, false) : '<div class="empty">No PTMs booked for today yet. New bookings show up here when you open this page again.</div>'}</div>
+    <div class="section-title"><h2>Tomorrow’s PTM schedule</h2><span>${esc(new Date(tomorrowIso + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</span></div>
+    <div class="card rise">${tomorrow.length ? ptmRows(tomorrow, false) : '<div class="empty">No PTMs booked for tomorrow yet.</div>'}</div>
     <div class="section-title"><h2>PTMs taken by each TM</h2><span>Done = held and marked done in Lighthouse. Click a TM to see their PTMs below.</span></div>
     <div class="card rise">${tmTable}</div>
     <div class="section-title" id="ptmByDate"><h2>PTMs by date</h2><span>Click a meeting for student details.</span></div>
@@ -1892,6 +1983,8 @@ async function createPtmReport(studentId, month, win) {
     step(3, 'done', 'ready');
     const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(out.pdf), (c) => c.charCodeAt(0))], { type: 'application/pdf' }));
     $('#rpOut').innerHTML = `<div class="rp-done">✅ Report ready: <b>${esc(out.name)}</b><br><a class="btn btn-primary" href="${url}" download="${esc(out.name)}">Download PDF</a>${out.link ? ` <a class="btn btn-ghost" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}</div>`;
+    if (out.saved) $('#rpOut .rp-done').insertAdjacentHTML('beforeend', `<div class="note" style="margin-top:8px">Saved to this student’s history: <a href="${esc(out.saved.url)}" target="_blank" rel="noopener">open saved copy</a>. You will find it on the All students tab.</div>`);
+    document.dispatchEvent(new CustomEvent('ptm-report-saved', { detail: { studentId } }));
     const dl = document.createElement('a');
     dl.href = url;
     dl.download = out.name;

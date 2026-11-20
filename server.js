@@ -332,7 +332,16 @@ app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-se
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 // A TM sees only their own students; other approved people see no student data.
-app.use('/api/parents', (req, res, next) => (req.role === 'owner' ? next() : res.status(403).json({ error: 'Only the owner can see parent numbers.' })));
+app.use('/api/parents', (req, res, next) => {
+  if (req.role === 'owner') return next();
+  if (req.role === 'tm') {
+    req.query = { ...req.query, tm: req.myTm };
+    return next();
+  }
+  res.status(403).json({ error: 'Not allowed.' });
+});
+// Parent names for everyone allowed; numbers and e-mails for the owner only.
+const noNumbers = (list) => (list || []).map(({ name, relation, primary }) => ({ name, relation, primary, phone: '' }));
 app.use(['/api/students.csv'], (req, res, next) => {
   if (req.role === 'owner') return next();
   if (req.role === 'tm') {
@@ -545,7 +554,8 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     .sort((a, b) => String(b.start).localeCompare(String(a.start)));
   let parents = [];
   try {
-    parents = req.role === 'owner' ? (await Parents.ensure([id]))[id] || [] : [];
+    parents = (await Parents.ensure([id]))[id] || [];
+    if (req.role !== 'owner') parents = noNumbers(parents);
   } catch (e) {
     error = error || e.message;
   }
@@ -565,7 +575,98 @@ const reportStep = (fn) => async (req, res) => {
 app.post('/api/ptm-report/gather', reportStep((b) => PR.gather(b.studentId, loadLatest(), b.window)));
 app.post('/api/ptm-report/read', reportStep((b) => PR.read(b.item, b.kind, b.tag)));
 app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month)));
-app.post('/api/ptm-report/publish', reportStep((b) => PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.drive === false ? null : b.folder || loadConfig().reportFolder)));
+const REPORTS = path.join(DATA, 'reports');
+const repIndex = () => readJson(path.join(REPORTS, 'index.json'), {});
+const studentAllowed = (req, studentId) => {
+  if (req.role === 'owner') return true;
+  if (req.role !== 'tm') return false;
+  const A = loadLatest() || {};
+  const m = team().find((x) => x.name === req.myTm);
+  return Boolean(m && ((A.students && A.students[M.lhName(m)]) || []).some((s) => Number(s.id) === Number(studentId)));
+};
+app.post('/api/ptm-report/publish', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const out = await PR.publish(b.ctx, b.plan, b.photos || {}, b.month, b.drive === false ? null : b.folder || loadConfig().reportFolder);
+    // keep a copy in the platform, newest first, five per student
+    const sid = String((b.ctx && b.ctx.student && b.ctx.student.id) || '');
+    if (sid && out.pdf) {
+      fs.mkdirSync(REPORTS, { recursive: true });
+      const idx = repIndex();
+      const id = `${sid}-${Date.now()}`;
+      fs.writeFileSync(path.join(REPORTS, id + '.pdf'), Buffer.from(out.pdf, 'base64'));
+      const list = [{ id, name: out.name, month: b.month, window: (b.ctx && b.ctx.window) || '30', at: new Date().toISOString(), by: req.user || 'this PC', bytes: out.bytes }, ...(idx[sid] || [])];
+      for (const old of list.slice(5)) fs.rmSync(path.join(REPORTS, old.id + '.pdf'), { force: true });
+      idx[sid] = list.slice(0, 5);
+      writeJson(path.join(REPORTS, 'index.json'), idx);
+      out.saved = { id, url: '/api/reports/file/' + id };
+    }
+    res.json(out);
+  } catch (e) {
+    console.log('[ptm-report]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get('/api/reports/file/:id', (req, res) => {
+  const id = String(req.params.id).replace(/[^0-9-]/g, '');
+  const sid = id.split('-')[0];
+  const rec = (repIndex()[sid] || []).find((r) => r.id === id);
+  if (!rec || !studentAllowed(req, sid)) return res.status(404).json({ error: 'Report not found.' });
+  const f = path.join(REPORTS, id + '.pdf');
+  if (!fs.existsSync(f)) return res.status(404).json({ error: 'Report not found.' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${rec.name.replace(/[^\w .-]/g, '')}"`);
+  res.send(fs.readFileSync(f));
+});
+
+// All students the person may see, with this month's PTMs (done, last 30 days) and their report history.
+let ptm30 = { at: 0, data: null };
+app.get('/api/students-all', async (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const A = loadLatest();
+  if (!A) return res.status(404).json({ error: 'No data yet. Click Refresh.' });
+  const today = istDate();
+  let err = '';
+  try {
+    if (!ptm30.data || Date.now() - ptm30.at > 3 * 60 * 1000) ptm30 = { at: Date.now(), data: await ptmMeetings(addDays(today, -29), today) };
+  } catch (e) {
+    err = e.message;
+  }
+  const tms = team();
+  const tmOf = (host) => {
+    const t = tms.find((x) => [x.name, x.lighthouseName, x.oldName].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
+    return t ? t.name : host;
+  };
+  const byStudent = new Map();
+  for (const m of (ptm30.data || []).filter((x) => x.status === 'completed')) {
+    const l = byStudent.get(Number(m.studentId)) || [];
+    l.push({ date: m.date, minutes: m.parentMinutes, tm: tmOf(m.host) });
+    byStudent.set(Number(m.studentId), l);
+  }
+  const idx = repIndex();
+  const rows = [];
+  for (const m of tms) {
+    if (req.role === 'tm' && m.name !== req.myTm) continue;
+    for (const s of (A.students && A.students[M.lhName(m)]) || []) {
+      const a = s.att || {};
+      rows.push({
+        id: s.id, name: s.name, grade: s.grade, school: s.school, batch: s.batch, level: s.level, oneOnOne: s.oneOnOne, lapsed: s.lapsed,
+        joinedAt: s.joinedAt, renewal: s.renewal, greenPct: s.greenPct, processPct: s.processPct, improvementPct: s.improvementPct,
+        lastContact: s.lastContact, attPct: a.regHeld ? Math.round((100 * a.regAttended) / a.regHeld) : null, streak: a.streak || 0,
+        tm: m.name,
+        ptms: (byStudent.get(Number(s.id)) || []).sort((x, y) => String(y.date).localeCompare(String(x.date))),
+        reports: (idx[String(s.id)] || []).map((r) => ({ id: r.id, month: r.month, at: r.at, window: r.window })),
+      });
+    }
+  }
+  res.json({ rows, from: addDays(today, -29), to: today, error: err, role: req.role });
+});
+
+// A student's saved reports (history).
+app.get('/api/reports/student/:id', (req, res) => {
+  if (!studentAllowed(req, req.params.id)) return res.status(403).json({ error: 'Not allowed.' });
+  res.json({ reports: (repIndex()[String(req.params.id)] || []).map((r) => ({ id: r.id, name: r.name, month: r.month, at: r.at, window: r.window, by: r.by })) });
+});
 // Read-only check that Google Drive is reachable and the reports folder can be opened.
 app.get('/api/drive-check', async (req, res) => {
   try {
@@ -654,7 +755,8 @@ app.get('/api/parents', async (req, res) => {
     const m = team().find((x) => x.name === req.query.tm);
     if (!m) return res.status(400).json({ error: 'Unknown TM.' });
     const ids = ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id);
-    res.json({ parents: await Parents.ensure(ids) });
+    const p = await Parents.ensure(ids);
+    res.json({ parents: req.role === 'owner' ? p : Object.fromEntries(Object.entries(p).map(([k, v]) => [k, noNumbers(v)])) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -671,19 +773,19 @@ app.get('/api/students.csv', async (req, res) => {
   const day = (d) => (d ? istDate(new Date(d)) : '');
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : '');
   const showParents = req.role === 'owner';
-  const head = ['TM', 'Student ID', 'Student', ...(showParents ? ['Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone'] : []), 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
+  const isTm = req.role === 'tm';
+  const head = ['TM', 'Student ID', 'Student', ...(showParents ? ['Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone'] : ['Parent 1 name', 'Parent 1 relation', 'Parent 2 name', 'Parent 2 relation']), 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
   const lines = [head.map(q).join(',')];
   const wanted = team().filter((m) => !req.query.tm || req.query.tm === m.name);
   let P = {};
   try {
-    if (showParents) P = await Parents.ensure(wanted.flatMap((m) => ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id)));
+    P = await Parents.ensure(wanted.flatMap((m) => ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id)));
   } catch (e) {
     console.log('[parents]', e.message);
   }
   const par = (s, i) => {
-    if (!showParents) return [];
     const g = (P[s.id] || [])[i] || {};
-    return [g.name || '', g.relation || '', g.phone || ''];
+    return showParents ? [g.name || '', g.relation || '', g.phone || ''] : [g.name || '', g.relation || ''];
   };
   for (const m of team()) {
     if (req.query.tm && req.query.tm !== m.name) continue;

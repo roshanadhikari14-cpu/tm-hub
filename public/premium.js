@@ -39,7 +39,7 @@
     '✉': 'mail', '🧪': 'flask', '🌅': 'sun', '⏱️': 'timer', '⏱': 'timer', '🌙': 'moon', '📄': 'file', '🔊': 'volume', '🎙': 'mic', '🗣': 'mic',
     '🎥': 'video', '📅': 'calendar', '🗓': 'calendar', '✅': 'check', '📈': 'trend', '🚀': 'rocket', '💬': 'chat', '🚫': 'ban', '📞': 'phone', '☎': 'phone', '⏰': 'clock', '🔁': 'repeat', '📚': 'book', '📖': 'book',
   };
-  const NAV = { dashboard: 'grid', team: 'users', tasks: 'columns', ptm: 'handshake', studentreport: 'file', reports: 'mail', schedule: 'clock', settings: 'sliders' };
+  const NAV = { dashboard: 'grid', team: 'users', tasks: 'columns', ptm: 'handshake', students: 'grad', reports: 'mail', schedule: 'clock', settings: 'sliders' };
   const emojiRe = new RegExp('(' + Object.keys(MAP).sort((a, b) => b.length - a.length).join('|') + ')\uFE0F?', 'g');
 
   function nav() {
