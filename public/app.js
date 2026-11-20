@@ -1961,24 +1961,26 @@ async function createPtmReport(studentId, month, win) {
     creepTo(10, 8);
     const ctx = await post('/api/ptm-report/gather', { studentId, window: win });
     q('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month} · ${win === "all" ? "since joining" : "last " + win + " days"}`;
-    step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${ctx.monthly ? ' + monthly report' : ''}`);
+    step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${(ctx.chapterReports || []).length ? ' + ' + ctx.chapterReports.length + ' chapter reports' : ''}${ctx.monthly ? ' + monthly report' : ''}`);
     setPct(10);
     step(1, 'run');
-    const files = [...(ctx.monthly ? [{ item: ctx.monthly, kind: 'monthly' }] : []), ...(ctx.earlier || []).map((x) => ({ item: x, kind: 'monthly', older: true })), ...ctx.evals.map((e, i) => ({ item: e, kind: 'eval', tag: (e.subject === 'Maths' ? 'M' : 'S') + (i + 1) + '.' }))];
+    const files = [...(ctx.monthly ? [{ item: ctx.monthly, kind: 'monthly' }] : []), ...(ctx.earlier || []).map((x) => ({ item: x, kind: 'monthly', older: true })), ...ctx.evals.map((e, i) => ({ item: e, kind: 'eval', tag: (e.subject === 'Maths' ? 'M' : 'S') + (i + 1) + '.' })), ...(ctx.chapterReports || []).map((c) => ({ item: c, kind: 'chapter' }))];
     let monthlyText = '';
     let candidates = [];
+    const chapters = [];
     for (const [i, f] of files.entries()) {
       step(1, 'run', `${i + 1} of ${files.length}`);
       creepTo(10 + (35 * (i + 1)) / files.length, 6);
       const r = await post('/api/ptm-report/read', { item: f.item, kind: f.kind, tag: f.tag });
       if (f.kind === 'monthly') monthlyText += (monthlyText ? '=== EARLIER CYCLE ===' : '') + r.text;
+      else if (f.kind === 'chapter') { if (r.chapter) chapters.push(r.chapter); }
       else candidates = candidates.concat(r.candidates);
       setPct(10 + (35 * (i + 1)) / files.length);
     }
     step(1, 'done', `${candidates.length} answer photos with mistakes`);
     step(2, 'run');
     creepTo(84, 10);
-    const w = await post('/api/ptm-report/write', { ctx, monthlyText, candidates: S.status && S.status.ai ? candidates : candidates.map((c) => ({ ...c, photo: '' })), month });
+    const w = await post('/api/ptm-report/write', { ctx, monthlyText, candidates: S.status && S.status.ai ? candidates : candidates.map((c) => ({ ...c, photo: '' })), month, chapters });
     step(2, 'done', `${w.plan.mistakes.length} mistakes picked`);
     setPct(85);
     step(3, 'run');

@@ -574,7 +574,7 @@ const reportStep = (fn) => async (req, res) => {
 };
 app.post('/api/ptm-report/gather', reportStep((b) => PR.gather(b.studentId, loadLatest(), b.window)));
 app.post('/api/ptm-report/read', reportStep((b) => PR.read(b.item, b.kind, b.tag)));
-app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month)));
+app.post('/api/ptm-report/write', reportStep((b) => PR.write(b.ctx, b.monthlyText, b.candidates || [], b.month, b.chapters || [])));
 const REPORTS = path.join(DATA, 'reports');
 const repIndex = () => readJson(path.join(REPORTS, 'index.json'), {});
 const studentAllowed = (req, studentId) => {
