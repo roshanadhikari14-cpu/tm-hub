@@ -314,7 +314,7 @@ async function students() {
         const ptm = r.ptms.length
           ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + p.minutes + 'm' : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
           : '<span style="color:var(--ink-3)">None</span>';
-        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="${esc(r.name)} · PTM report ${esc(x.month || '')} (saved ${esc(new Date(x.at).toLocaleString('en-GB'))})">📄 ${esc(shortDate(x.at.slice(0, 10)))}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
+        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="${esc(r.name)} · PTM report ${esc(x.month || '')} (saved ${esc(new Date(x.at).toLocaleString('en-GB'))})">📄 ${esc(new Date(x.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }))} · ${esc(new Date(x.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).toUpperCase())}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
         return `<tr><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b>${r.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${r.oneOnOne ? ' <span class="tag">1:1</span>' : ''}<br><small style="color:var(--ink-3)">Class ${esc(r.grade ?? '—')} · ${esc(r.school || '—')}</small></td>
           ${owner ? `<td>${esc(r.tm.split(' ')[0])}</td>` : ''}
