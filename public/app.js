@@ -314,7 +314,7 @@ async function students() {
         const ptm = r.ptms.length
           ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + p.minutes + 'm' : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
           : '<span style="color:var(--ink-3)">None</span>';
-        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="Saved ${esc(new Date(x.at).toLocaleString('en-GB'))}">📄 ${esc(shortDate(x.at.slice(0, 10)))}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
+        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="${esc(r.name)} · PTM report ${esc(x.month || '')} (saved ${esc(new Date(x.at).toLocaleString('en-GB'))})">📄 ${esc(shortDate(x.at.slice(0, 10)))}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
         return `<tr><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b>${r.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${r.oneOnOne ? ' <span class="tag">1:1</span>' : ''}<br><small style="color:var(--ink-3)">Class ${esc(r.grade ?? '—')} · ${esc(r.school || '—')}</small></td>
           ${owner ? `<td>${esc(r.tm.split(' ')[0])}</td>` : ''}
@@ -1924,23 +1924,30 @@ async function createPtmReport(studentId, month, win) {
   if (reportBusy) return toast('A report is already being made. Please wait for it to finish.', 'err');
   reportBusy = true;
   const m = $('#modal');
+  let closed = false;
   $('#modalCard').innerHTML = `<h3>📄 PTM report</h3><div class="note" id="rpWho">Student ${esc(studentId)} · ${esc(month)} · ${win === "all" ? "since joining" : "last " + win + " days"}</div>
     <div class="rp-bar"><i id="rpBar"></i></div><div class="rp-meta"><span id="rpPct">0%</span><span id="rpTime">0s</span></div>
     <ol class="rp-steps">${RSTEPS.map((s, i) => `<li data-i="${i}"><span class="dot"></span><span class="t">${esc(s)}</span><small></small></li>`).join('')}</ol>
-    <div id="rpOut"></div><div class="actions"><button class="btn btn-ghost" id="rpClose" disabled>Close</button></div>`;
+    <div id="rpOut"></div><div class="actions"><button class="btn btn-ghost" id="rpClose">Close</button></div>`;
   m.hidden = false;
+  const card = $('#modalCard');
+  const q = (sel) => card.querySelector(sel);
   const t0 = Date.now();
+  q('#rpClose').onclick = () => {
+    closed = true;
+    m.hidden = true;
+  };
   let pct = 0, creep = null;
   const setPct = (p) => {
     pct = Math.max(pct, Math.min(100, p));
-    $('#rpBar').style.width = pct + '%';
-    $('#rpPct').textContent = Math.round(pct) + '%';
+    q('#rpBar').style.width = pct + '%';
+    q('#rpPct').textContent = Math.round(pct) + '%';
   };
-  const clock = setInterval(() => ($('#rpTime').textContent = Math.round((Date.now() - t0) / 1000) + 's'), 500);
+  const clock = setInterval(() => (q('#rpTime').textContent = Math.round((Date.now() - t0) / 1000) + 's'), 500);
   const step = (i, state, note) => {
     const li = $(`.rp-steps li[data-i="${i}"]`);
     li.className = state;
-    if (note !== undefined) $('small', li).textContent = note;
+    if (note !== undefined) li.querySelector('small').textContent = note;
   };
   // While a long step runs, the bar creeps towards its end so it never looks stuck.
   const creepTo = (end, secs) => {
@@ -1953,7 +1960,7 @@ async function createPtmReport(studentId, month, win) {
     step(0, 'run');
     creepTo(10, 8);
     const ctx = await post('/api/ptm-report/gather', { studentId, window: win });
-    $('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month} · ${win === "all" ? "since joining" : "last " + win + " days"}`;
+    q('#rpWho').textContent = `${ctx.student.name} · Grade ${ctx.student.grade} · ${ctx.student.school} · ${month} · ${win === "all" ? "since joining" : "last " + win + " days"}`;
     step(0, 'done', `${ctx.evals.length} evaluation report${ctx.evals.length === 1 ? '' : 's'}${ctx.monthly ? ' + monthly report' : ''}`);
     setPct(10);
     step(1, 'run');
@@ -1981,29 +1988,25 @@ async function createPtmReport(studentId, month, win) {
     clearInterval(creep);
     setPct(100);
     step(3, 'done', 'ready');
-    const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(out.pdf), (c) => c.charCodeAt(0))], { type: 'application/pdf' }));
-    $('#rpOut').innerHTML = `<div class="rp-done">✅ Report ready: <b>${esc(out.name)}</b><br><a class="btn btn-primary" href="${url}" download="${esc(out.name)}">Download PDF</a>${out.link ? ` <a class="btn btn-ghost" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}</div>`;
-    if (out.saved) $('#rpOut .rp-done').insertAdjacentHTML('beforeend', `<div class="note" style="margin-top:8px">Saved to this student’s history: <a href="${esc(out.saved.url)}" target="_blank" rel="noopener">open saved copy</a>. You will find it on the All students tab.</div>`);
+    const blob = new Blob([Uint8Array.from(atob(out.pdf), (c) => c.charCodeAt(0))], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const viewUrl = out.saved ? out.saved.url : url;
+    q('#rpOut').innerHTML = `<div class="rp-done">✅ Report ready: <b>${esc(out.name)}</b><br><button class="btn btn-primary" data-view="${esc(viewUrl)}" data-title="${esc(out.name)}">👁 View report</button> <a class="btn btn-ghost" href="${url}" download="${esc(out.name)}">⬇ Download PDF</a>${out.link ? ` <a class="btn btn-ghost" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}${out.saved ? '<div class="note" style="margin-top:8px">Saved to this student’s history on the All students tab.</div>' : ''}</div>`;
     document.dispatchEvent(new CustomEvent('ptm-report-saved', { detail: { studentId } }));
-    const dl = document.createElement('a');
-    dl.href = url;
-    dl.download = out.name;
-    dl.click();
-    toast('PTM report ready', 'ok');
+    toast(closed ? 'PTM report ready. Open it from the All students tab.' : 'PTM report ready', 'ok');
+    if (!closed) viewPdf(viewUrl, out.name, { back: true });
   } catch (e) {
     clearInterval(creep);
-    const i = [...$$('.rp-steps li')].findIndex((li) => li.className === 'run');
+    const i = [...card.querySelectorAll('.rp-steps li')].findIndex((li) => li.className === 'run');
     if (i >= 0) step(i, 'fail', '');
-    $('#rpOut').innerHTML = `<div class="rp-err">${esc(e.message)}</div><div class="actions" style="margin-top:8px"><button class="btn btn-ghost" id="rpRetry">Try again</button></div>`;
-    $('#rpRetry').onclick = () => {
+    q('#rpOut').innerHTML = `<div class="rp-err">${esc(e.message)}</div><div class="actions" style="margin-top:8px"><button class="btn btn-ghost" id="rpRetry">Try again</button></div>`;
+    if (!closed) q('#rpRetry').onclick = () => {
       reportBusy = false;
       createPtmReport(studentId, month, win);
     };
   } finally {
     clearInterval(clock);
     reportBusy = false;
-    $('#rpClose').disabled = false;
-    $('#rpClose').onclick = () => (m.hidden = true);
   }
 }
 document.addEventListener('click', (e) => {
@@ -2044,5 +2047,74 @@ document.addEventListener('click', async (e) => {
     route(true);
   } catch (err) {
     toast(err.message, 'err');
+  }
+});
+
+// ---------- PDF viewer (pdf.js), with Download ----------
+let pdfjsReady = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (!pdfjsReady)
+    pdfjsReady = new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      sc.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        res();
+      };
+      sc.onerror = () => rej(new Error('Could not load the PDF viewer.'));
+      document.head.appendChild(sc);
+    });
+  return pdfjsReady;
+}
+async function viewPdf(url, title) {
+  const m = $('#modal');
+  const card = $('#modalCard');
+  const dl = url.startsWith('blob:') ? url : url + (url.includes('?') ? '&' : '?') + 'dl=1';
+  card.classList.add('wide');
+  card.innerHTML = `<div class="pdf-head"><h3 style="margin:0">📄 ${esc(title || 'PTM report')}</h3><span style="flex:1"></span><a class="btn btn-ghost" href="${esc(dl)}" download="${esc(title || 'report.pdf')}">⬇ Download</a><a class="btn btn-ghost" href="${esc(url)}" target="_blank" rel="noopener" id="pdfNew">Open in new tab ↗</a><button class="btn btn-primary" id="pdfClose">Close</button></div><div class="pdf-pages" id="pdfPages"><div class="empty">Loading the report…</div></div>`;
+  m.hidden = false;
+  const close = () => {
+    m.hidden = true;
+    card.classList.remove('wide');
+  };
+  $('#pdfClose').onclick = close;
+  try {
+    await loadPdfJs();
+    const buf = await (await fetch(url)).arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const box = $('#pdfPages');
+    box.innerHTML = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale: 1.5 });
+      const cv = document.createElement('canvas');
+      cv.width = vp.width;
+      cv.height = vp.height;
+      cv.className = 'pdf-page';
+      box.appendChild(cv);
+      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+  } catch (err) {
+    const box = $('#pdfPages');
+    if (box) box.innerHTML = `<div class="empty">Could not show the report here (${esc(err.message)}). Use <b>Open in new tab</b> or <b>Download</b>.</div>`;
+  }
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest && e.target.closest('[data-view]');
+  if (v) {
+    e.preventDefault();
+    return viewPdf(v.dataset.view, v.dataset.title);
+  }
+  const l = e.target.closest && e.target.closest('a[href^="/api/reports/file/"]');
+  if (l && !l.href.includes('dl=1') && !e.ctrlKey && !e.metaKey && e.button === 0 && !l.id) {
+    e.preventDefault();
+    viewPdf(l.getAttribute('href'), l.title || 'PTM report');
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#modal').hidden) {
+    $('#modal').hidden = true;
+    $('#modalCard').classList.remove('wide');
   }
 });

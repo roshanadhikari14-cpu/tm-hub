@@ -615,7 +615,7 @@ app.get('/api/reports/file/:id', (req, res) => {
   const f = path.join(REPORTS, id + '.pdf');
   if (!fs.existsSync(f)) return res.status(404).json({ error: 'Report not found.' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${rec.name.replace(/[^\w .-]/g, '')}"`);
+  res.setHeader('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${rec.name.replace(/[^\w .-]/g, '')}"`);
   res.send(fs.readFileSync(f));
 });
 
