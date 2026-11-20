@@ -291,7 +291,7 @@ async function students() {
   const m = reportMonths();
   view.innerHTML = `
     <div class="toolbar team-tools">
-      <div class="search"><input id="stQ" placeholder="Search ${stRows.length} students by name, school or class…" autocomplete="off" value="${esc(stState.q)}"></div>
+      <div class="search"><input id="stQ" placeholder="Search ${stRows.length} students by name, student ID, school or class…" autocomplete="off" value="${esc(stState.q)}"></div>
       ${owner ? `<select class="sel" id="stTm"><option value="all">All TMs</option>${tmNames.map((n) => `<option ${stState.tm === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : ''}
       <div class="chipset" id="stChips">${[['all', 'All'], ['ptm', 'PTM done'], ['noptm', 'No PTM in 30 days'], ['rep', 'Has report']].map(([k, l]) => `<button class="fchip ${stState.f === k ? 'on' : ''}" data-f="${k}">${l}<span data-n="${k}"></span></button>`).join('')}</div>
       <span style="flex:1"></span>
@@ -304,7 +304,7 @@ async function students() {
   const shortDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const paint = () => {
     const q = stState.q.trim().toLowerCase();
-    const base = stRows.filter((r) => (stState.tm === 'all' || r.tm === stState.tm) && (!q || `${r.name} ${r.school} ${r.batch} ${r.grade}`.toLowerCase().includes(q)));
+    const base = stRows.filter((r) => (stState.tm === 'all' || r.tm === stState.tm) && (!q || `${r.name} ${r.id} ${r.school} ${r.batch} ${r.grade}`.toLowerCase().includes(q)));
     const test = { all: () => true, ptm: (r) => r.ptms.length > 0, noptm: (r) => r.ptms.length === 0, rep: (r) => r.reports.length > 0 };
     $$('#stChips [data-n]').forEach((s) => (s.textContent = base.filter(test[s.dataset.n]).length));
     const list = base.filter(test[stState.f]);
@@ -609,7 +609,7 @@ function parentCell(id) {
 function studentRows(students) {
   const f = stuState;
   let list = students.filter((s) => {
-    const hay = `${s.name} ${s.school} ${s.batch} ${s.grade}`.toLowerCase();
+    const hay = `${s.name} ${s.id} ${s.school} ${s.batch} ${s.grade}`.toLowerCase();
     if (f.q && !hay.includes(f.q.toLowerCase())) return false;
     const d = daysAgo(s.lastContact);
     if (f.filter === 'low') return typeof s.greenPct === 'number' && s.greenPct < 60;
@@ -726,7 +726,7 @@ async function tm([name, focus]) {
     <div id="ptab-tasks" class="rise" style="--i:3">${accs}</div>
     <div id="ptab-students" hidden>
       <div class="card">
-        <div class="toolbar"><div class="search"><input id="stuQ" placeholder="Search ${j.students.length} students by name, school or batch"></div>
+        <div class="toolbar"><div class="search"><input id="stuQ" placeholder="Search ${j.students.length} students by name, student ID, school or batch"></div>
           <select class="sel" id="stuF"><option value="all">All students</option><option value="low">Green below 60%</option><option value="nc15">Not contacted 15+ days</option><option value="absent">Absent 3+ class days</option><option value="lowatt">Regular attendance below 70%</option><option value="one">1:1 students</option><option value="lapsed">Subscription lapsed</option></select>
           <span class="note" id="stuN"></span>
           <a class="btn btn-ghost" href="/api/students.csv?tm=${encodeURIComponent(r.name)}" download>⬇ Download CSV</a></div>
