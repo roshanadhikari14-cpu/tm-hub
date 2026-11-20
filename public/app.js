@@ -596,14 +596,14 @@ let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
 // Parent / guardian name + number, filled in from /api/parents after the students tab opens.
 const parentMap = {};
 const isOwnerUI = () => true; // parent names show for everyone allowed; numbers only arrive from the server for the owner
-const telLink = (p) => (p ? `<a class="tel" href="tel:${esc(String(p).replace(/[^+d]/g, ''))}">${esc(p)}</a>` : '');
+const telLink = (p, id) => (p ? (id ? `<a class="tel" href="${esc(CRM)}/students/view/${esc(id)}" target="_blank" rel="noopener" title="Open in Lighthouse to call">${esc(p)} <span class="ext">↗</span></a>` : `<a class="tel" href="tel:${esc(String(p).replace(/[^+0-9]/g, ''))}">${esc(p)}</a>`) : '');
 function parentCell(id) {
   const g = parentMap[id];
   if (!g) return '<span style="color:var(--ink-3)">…</span>';
   if (!g.length) return '<span style="color:var(--ink-3)">Not in Lighthouse</span>';
   return g
     .slice(0, 2)
-    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}${x.phone ? `<br>${telLink(x.phone)}` : ''}</div>`)
+    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}${x.phone ? `<br>${telLink(x.phone, id)}` : ''}</div>`)
     .join('');
 }
 function studentRows(students) {
@@ -1853,7 +1853,7 @@ async function openPtmPanel(meetingId) {
   }</div>`;
   const fam = !isOwnerUI() ? '' : `<div class="dsec"><h4>Parents / guardians <span class="ptag blue">${(j.parents || []).length}</span></h4>${
     (j.parents || []).length
-      ? `<div class="dlist">${j.parents.map((g) => `<div class="it"><div class="when">${esc(g.relation || 'Guardian')}${g.primary ? '<small>Primary contact</small>' : ''}</div><div class="what"><b>${esc(g.name || '—')}</b><br>${telLink(g.phone) || '<small style="color:var(--ink-3)">No number</small>'}${g.email ? `<br><small style="color:var(--ink-3)">${esc(g.email)}</small>` : ''}</div></div>`).join('')}</div>`
+      ? `<div class="dlist">${j.parents.map((g) => `<div class="it"><div class="when">${esc(g.relation || 'Guardian')}${g.primary ? '<small>Primary contact</small>' : ''}</div><div class="what"><b>${esc(g.name || '—')}</b><br>${telLink(g.phone, m.studentId) || '<small style="color:var(--ink-3)">No number</small>'}${g.email ? `<br><small style="color:var(--ink-3)">${esc(g.email)}</small>` : ''}</div></div>`).join('')}</div>`
       : '<p class="note" style="margin:0">No parent details found in Lighthouse.</p>'
   }</div>`;
   $('.drawer-body', dr).innerHTML = meeting + fam + profile + tasks + hist;
