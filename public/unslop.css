@@ -1,0 +1,72 @@
+/* unslop pass (heydamir/unslop): quiet chrome, solid colour, one accent, small radii, no looping motion.
+   The dashboard hero card, the top bar (report time and Refresh) and the sidebar are left exactly as designed. */
+
+:root {
+  --r: 14px;
+  --r-sm: 8px;
+  --hair: rgba(18, 28, 42, 0.09);
+  --ink-mute: #5c6672;
+  --beam: #d98a1f; /* the one amber beam: live / fresh data */
+}
+
+/* 1. Background: plain, no drifting colour blobs */
+.bg-orbs { display: none; }
+body { background: var(--bg); }
+
+/* 2. Cards and tiles: a raised surface with a hairline, no pointer spotlight, no lift */
+.main .card, .main .kpi, .main .tm-card { border: 1px solid var(--hair); box-shadow: 0 1px 2px rgba(18, 28, 42, 0.04); }
+.kpi::before, .tm-card::before, .tm-card .glare { display: none; }
+.kpi.crit, .kpi-wrap .spotlight-card.kpi.crit { box-shadow: 0 1px 2px rgba(18, 28, 42, 0.04); border-color: var(--hair); }
+.kpi.crit .ico { background: var(--red-bg); color: var(--red); }
+.kpi:hover, .tm-card:hover, .main .card:hover { transform: none; box-shadow: 0 2px 8px rgba(18, 28, 42, 0.08); }
+
+/* 3. Colour: solid fills instead of hue gradients, state colours stay semantic */
+.main .btn-primary { background: var(--teal); box-shadow: none; }
+.main .btn-primary::after { display: none; }
+.main .btn-primary:hover { background: var(--teal-2); }
+.prog > i, .rp-bar i, .rbar i, .dbar i { background: var(--teal); }
+.prog.red > i, .rbar i.risk { background: #c4321f; }
+.prog.amber > i, .rbar i.push { background: #b07a14; }
+.rbar i.star { background: #0f7048; }
+.tm-card .cover { background: #1c2147; }
+.tm-card .cover::after { display: none; }
+.tm-card.risk .cover { background: #8a2f22; }
+.tm-card.push .cover { background: #8a6a1c; }
+.tm-card.star .cover { background: #167352; }
+.profile-hero::before { background: rgba(12, 16, 44, 0.82); }
+.hints, .report-card { background: var(--card); border: 1px solid var(--hair); }
+.recip .team-ic { background: var(--teal); }
+.timeline::before { background: var(--hair); }
+.drawer-head { background: #1c2147; }
+.ticker { background: var(--card); border: 1px solid var(--hair); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+
+/* 4. Type: two weights, sentence case, no shouty tracking */
+.main h2, .main h3, .main h4 { font-weight: 600; }
+.main .card b, .main .card strong, .main table b, .main .kpi b, .main .tm-card b { font-weight: 600; }
+.kpi .val, .tm-card .name, .ring b, .metric-row .v, .quality b, .acc-head .fig { font-weight: 600; }
+.tbl th, .dgrid div small, .acc-h, .score-pop small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; color: var(--ink-mute); }
+.main .num, .main td.num, .kpi .val, .metric-row .v, .quality b { font-variant-numeric: tabular-nums; }
+
+/* 5. Details: radii by size, counts and statuses as quiet text, not glowing pills */
+.pill, .ptag, .mini, .fchip, .tabs button .count, .fchip span { border-radius: 6px; }
+.pill.critical::before { animation: none; }
+.fchip { border-radius: var(--r-sm); }
+.dbar, .dbar i, .rp-bar, .rp-bar i, .prog, .prog > i, .rbar, .rbar i { border-radius: 4px; }
+.main .tbl th { background: transparent; border-bottom: 1px solid var(--hair); }
+.main .tbl td { border-top: 1px solid var(--hair); }
+.main input:focus, .main select:focus, .main textarea:focus, .search input:focus, .form input:focus, .form textarea:focus { box-shadow: 0 0 0 3px rgba(51, 55, 158, 0.16); }
+
+/* 6. Motion: only what explains something. Live status keeps a slow beam, the rest holds still */
+.dot.on { animation: none; box-shadow: none; }
+.slot-card.next .bubble { animation: none; }
+.main .card, .main .kpi, .main .tm-card { transition: box-shadow 0.2s var(--ease), border-color 0.2s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .ticker .animate-marquee, .animate-marquee { animation: none; } }
+
+/* 7. Team cards: equal columns, a lone last tile spans the row */
+.tm-card .mini-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tm-card .mini-stats .go:last-child:nth-child(3n+1) { grid-column: 1 / -1; }
+
+/* 8. No neon or glowing borders, grain or pointer light on tiles and cards */
+.tm-card .magic-layer, .profile-hero .magic-layer { display: none; }
+.spotlight-card__light, .spotlight-card__grain, .spotlight-card__border, .spotlight-card__edge { display: none; }
+.kpi .ico { background: #eef0f6; color: var(--ink-2); }
