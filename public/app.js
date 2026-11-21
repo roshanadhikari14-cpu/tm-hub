@@ -230,7 +230,8 @@ $('#refreshBtn').onclick = async () => {
 
 // ---------- router ----------
 // ---------- Renewals: the Vantage renewal list with filters ----------
-let rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
+const RN_BLANK = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rtype: '', ptm: '', quick: '', rem: false, sort: 'att', limit: 150 };
+let rnState = { ...RN_BLANK };
 const rnIsOwner = () => !S.status || !S.status.role || S.status.role === 'owner';
 // One hidden file input lives in the page; the Upload button opens it.
 function rnEnsureInput() {
@@ -260,6 +261,16 @@ function rnEnsureInput() {
 function rnUpload() {
   rnEnsureInput().click();
 }
+// PTM status of the last 10 days for one student
+const RN_PTM = {
+  completed: ['PTM done', 'ok'],
+  no_show: ['Parent no-show', 'red'],
+  unmarked: ['Not marked', 'amber'],
+  live: ['In progress', 'blue'],
+  upcoming: ['Scheduled', 'blue'],
+  cancelled: ['Cancelled', ''],
+};
+const rnPtmKey = (r) => (!r.ptm ? 'none' : r.ptm.state === 'cancelled' ? 'none' : r.ptm.state);
 async function renewals() {
   title('Renewals', 'Students due to renew, with their status and remarks');
   view.innerHTML = '<div class="card empty">Loading renewals…</div>';
@@ -276,8 +287,11 @@ async function renewals() {
     return;
   }
   const rows = j.rows;
+  // the PTM objects double as "meetings" for the shared remark editor
+  for (const r of rows) if (r.ptm) Object.assign(r.ptm, { tm: r.tm, student: r.name });
+  window.__ptmMeetings = rows.filter((r) => r.ptm).map((r) => r.ptm);
   const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const opt = (id, label, list, cur) => `<select class="sel" id="${id}" title="${label}"><option value="">${label}</option>${list.map((v) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+  const opt = (id, label, list, cur) => `<select class="sel" id="${id}" title="${label}"><option value="">${label}</option>${list.map((v) => (Array.isArray(v) ? `<option value="${esc(v[0])}" ${cur === v[0] ? 'selected' : ''}>${esc(v[1])}</option>` : `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(v)}</option>`)).join('')}</select>`;
   title('Renewals', `${j.source || ''} · loaded ${new Date(j.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`);
   view.innerHTML = `
     <div class="toolbar team-tools" style="flex-wrap:wrap">
@@ -286,6 +300,8 @@ async function renewals() {
       ${opt('rnOffice', 'All offices', uniq('office'), rnState.office)}
       ${opt('rnStatus', 'Any sales status', uniq('status'), rnState.status)}
       ${opt('rnAt', 'Any academic status', uniq('atStatus'), rnState.at)}
+      ${opt('rnRtype', 'Any renewal', ['1st', '2nd', '3rd', '3rd +'].filter((v) => rows.some((r) => r.rtype === v)), rnState.rtype)}
+      ${opt('rnPtm', 'Any PTM status', [['completed', 'PTM done'], ['no_show', 'Parent no-show'], ['unmarked', 'Not marked'], ['upcoming', 'Scheduled'], ['none', 'No PTM in 10 days']], rnState.ptm)}
       ${opt('rnSchool', 'All schools', uniq('school'), rnState.school)}
       ${opt('rnGrade', 'All classes', uniq('grade'), rnState.grade)}
       ${opt('rnBand', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'], rnState.band)}
@@ -296,26 +312,63 @@ async function renewals() {
       <button class="btn btn-ghost" id="rnClear" type="button">Clear filters</button>
       <button class="btn btn-ghost" id="rnCsv" type="button">⬇ CSV</button>
     </div>
-    <div class="ptm-sum" id="rnSum" style="margin:-4px 0 12px"></div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
+    <div class="rn-chips" id="rnSum"></div>
+    <div class="note" style="margin:0 0 10px">PTM status covers ${esc(j.ptmFrom || '')} to ${esc(j.ptmTo || '')} (last 10 days). ${j.ptmError ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.ptmError)}</span>` : ''}</div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Renewal</th><th>PTM (last 10 days)</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
     <div id="rnMore" style="margin:12px 0"></div>`;
   const tagOf = (v, kind) => {
     if (!v) return '';
     const sales = { 'Will Pay': 'ok', 'Potential Discontinuation': 'amber', Discontinued: 'red' };
     const acad = { 'Will Pay': 'ok', 'Need Intervention': 'amber', 'Confirmed Discontinuation': 'red', 'Batch Blocking': 'red' };
-    return `<span class="ptag ${(kind === 'sales' ? sales : acad)[v] || 'grey'}">${esc(v)}</span>`;
+    return `<span class="ptag ${(kind === 'sales' ? sales : acad)[v] || ''}">${esc(v)}</span>`;
   };
-  const filtered = () => {
+  const atRisk = (r) => r.status === 'Potential Discontinuation' || r.status === 'Discontinued' || r.atStatus === 'Confirmed Discontinuation';
+  const QUICK = {
+    all: () => true,
+    willpay: (r) => r.atStatus === 'Will Pay',
+    intervene: (r) => r.atStatus === 'Need Intervention',
+    risk: atRisk,
+    notset: (r) => r.status === 'Not set',
+    remarks: (r) => !!r.remarks,
+  };
+  const filtered = (skipQuick) => {
     const q = rnState.q.trim().toLowerCase();
-    let l = rows.filter((r) => (!rnState.tm || r.tm === rnState.tm) && (!rnState.office || r.office === rnState.office) && (!rnState.status || r.status === rnState.status) && (!rnState.at || r.atStatus === rnState.at) && (!rnState.school || r.school === rnState.school) && (!rnState.grade || r.grade === rnState.grade) && (!rnState.band || r.band === rnState.band) && (!rnState.rem || r.remarks) && (!q || `${r.name} ${r.id} ${r.school} ${r.remarks} ${r.office} ${r.tm}`.toLowerCase().includes(q)));
+    const l = rows.filter(
+      (r) =>
+        (!rnState.tm || r.tm === rnState.tm) && (!rnState.office || r.office === rnState.office) && (!rnState.status || r.status === rnState.status) && (!rnState.at || r.atStatus === rnState.at) &&
+        (!rnState.rtype || r.rtype === rnState.rtype) && (!rnState.ptm || rnPtmKey(r) === rnState.ptm) && (!rnState.school || r.school === rnState.school) && (!rnState.grade || r.grade === rnState.grade) &&
+        (!rnState.band || r.band === rnState.band) && (!rnState.rem || r.remarks) && (!q || `${r.name} ${r.id} ${r.school} ${r.remarks} ${r.office} ${r.tm}`.toLowerCase().includes(q)) &&
+        (skipQuick || !rnState.quick || QUICK[rnState.quick](r))
+    );
     const num = (r) => (r.att === '' ? 999 : Number(r.att));
     return l.slice().sort((a, b) => (rnState.sort === 'name' ? a.name.localeCompare(b.name) : rnState.sort === 'tm' ? a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) : num(a) - num(b) || a.name.localeCompare(b.name)));
+  };
+  const ptmCell = (r) => {
+    const p = r.ptm;
+    if (j.ptmError) return '<small style="color:var(--ink-3)">PTM data unavailable</small>';
+    if (!p || p.state === 'cancelled') return '<span class="ptag">No PTM in 10 days</span>';
+    const [label, cls] = RN_PTM[p.state] || ['PTM', ''];
+    const d = p.date ? new Date(p.date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+    const meta = [d, p.state === 'completed' && p.minutes ? p.minutes + ' min' : '', p.count > 1 ? p.count + ' meetings' : ''].filter(Boolean).join(' · ');
+    return `<span class="ptag ${cls}">${esc(label)}</span><br><small style="color:var(--ink-3)">${esc(meta)}</small><div class="rm-cell rn-ptmrm" data-rm="${esc(p.id)}">${remarkHtml(p)}</div>`;
   };
   const paint = () => {
     const l = filtered();
     const shown = l.slice(0, rnState.limit);
-    const n = (f) => l.filter(f).length;
-    $('#rnSum').innerHTML = `<span class="ptag blue">${l.length} students</span><span class="ptag ok">${n((r) => r.atStatus === 'Will Pay')} will pay (academic)</span><span class="ptag amber">${n((r) => r.atStatus === 'Need Intervention')} need intervention</span><span class="ptag red">${n((r) => r.status === 'Potential Discontinuation' || r.status === 'Discontinued' || r.atStatus === 'Confirmed Discontinuation')} at risk of leaving</span><span class="ptag grey">${n((r) => r.status === 'Not set')} sales status not set</span><span class="ptag">${n((r) => r.remarks)} with remarks</span>`;
+    const base = filtered(true);
+    const chip = (k, cls, label, n) => `<button type="button" class="ptag ${cls} rn-chip ${rnState.quick === k ? 'on' : ''}" data-q="${k}" title="Show only these students">${n} ${label}</button>`;
+    $('#rnSum').innerHTML =
+      chip('all', 'blue', 'students', base.length) +
+      chip('willpay', 'ok', 'will pay (academic)', base.filter(QUICK.willpay).length) +
+      chip('intervene', 'amber', 'need intervention', base.filter(QUICK.intervene).length) +
+      chip('risk', 'red', 'at risk of leaving', base.filter(QUICK.risk).length) +
+      chip('notset', '', 'sales status not set', base.filter(QUICK.notset).length) +
+      chip('remarks', '', 'with remarks', base.filter(QUICK.remarks).length);
+    $$('#rnSum .rn-chip').forEach((b) => (b.onclick = () => {
+      rnState.quick = b.dataset.q === 'all' || rnState.quick === b.dataset.q ? '' : b.dataset.q;
+      rnState.limit = 150;
+      paint();
+    }));
     $('#rnBody').innerHTML = shown.map((r, i) => `<tr>
         <td class="num">${i + 1}</td>
         <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b><br><small style="color:var(--ink-3)">ID ${esc(r.id)} · Class ${esc(r.grade)}${r.batch ? ' · ' + esc(r.batch) : ''}</small></td>
@@ -323,7 +376,9 @@ async function renewals() {
         <td style="white-space:nowrap">${esc(r.tm)}</td>
         <td style="min-width:130px">${esc(r.office)}</td>
         <td style="min-width:150px">${tagOf(r.status, 'sales')}<br>${tagOf(r.atStatus, 'at')}<br><small style="color:var(--ink-3)">Attendance ${esc(r.att || '—')}${r.att !== '' ? '%' : ''}</small></td>
-        <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No student matches</td></tr>';
+        <td style="white-space:nowrap">${r.rtype ? `<span class="ptag blue">${esc(r.rtype)}</span>` : '<small style="color:var(--ink-3)">—</small>'}</td>
+        <td style="min-width:200px">${ptmCell(r)}</td>
+        <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No student matches</td></tr>';
     $('#rnMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="rnAll">Show all ${l.length}</button>` : `<span class="note">${l.length} student${l.length === 1 ? '' : 's'}</span>`;
     const all = $('#rnAll');
     if (all) all.onclick = () => ((rnState.limit = 9999), paint());
@@ -342,6 +397,8 @@ async function renewals() {
   bind('rnOffice', 'office');
   bind('rnStatus', 'status');
   bind('rnAt', 'at');
+  bind('rnRtype', 'rtype');
+  bind('rnPtm', 'ptm');
   bind('rnSchool', 'school');
   bind('rnGrade', 'grade');
   bind('rnBand', 'band');
@@ -350,14 +407,14 @@ async function renewals() {
   rnEnsureInput();
   if ($('#rnUp')) $('#rnUp').onclick = rnUpload;
   $('#rnClear').onclick = () => {
-    rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
+    rnState = { ...RN_BLANK };
     renewals();
   };
   $('#rnCsv').onclick = () => {
     const l = filtered();
-    const cols = [['Student ID', 'id'], ['Student', 'name'], ['School', 'school'], ['Class', 'grade'], ['TM', 'tm'], ['Office', 'office'], ['Sales status', 'status'], ['Academic status', 'atStatus'], ['Attendance %', 'att'], ['Remarks', 'remarks']];
+    const cols = [['Student ID', (r) => r.id], ['Student', (r) => r.name], ['School', (r) => r.school], ['Class', (r) => r.grade], ['TM', (r) => r.tm], ['Office', (r) => r.office], ['Sales status', (r) => r.status], ['Academic status', (r) => r.atStatus], ['Renewal', (r) => r.rtype], ['Attendance %', (r) => r.att], ['PTM (10 days)', (r) => (r.ptm && r.ptm.state !== 'cancelled' ? (RN_PTM[r.ptm.state] || [''])[0] + ' ' + (r.ptm.date || '') : 'None')], ['PTM remark', (r) => (r.ptm && r.ptm.remark ? r.ptm.remark.text : '')], ['Remarks', (r) => r.remarks]];
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(r[c[1]])).join(','))].join('\n');
+    const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(c[1](r))).join(','))].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
     a.download = 'renewals.csv';

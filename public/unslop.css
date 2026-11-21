@@ -52,7 +52,7 @@ body { background: var(--bg); }
 .pill.critical::before { animation: none; }
 .fchip { border-radius: var(--r-sm); }
 .dbar, .dbar i, .rp-bar, .rp-bar i, .prog, .prog > i, .rbar, .rbar i { border-radius: 4px; }
-.main .tbl th { background: transparent; border-bottom: 1px solid var(--hair); }
+.main .tbl th { background: #faf8f2; border-bottom: 1px solid var(--hair); position: sticky; top: 0; z-index: 3; }
 .main .tbl td { border-top: 1px solid var(--hair); }
 .main input:focus, .main select:focus, .main textarea:focus, .search input:focus, .form input:focus, .form textarea:focus { box-shadow: 0 0 0 3px rgba(51, 55, 158, 0.16); }
 
@@ -73,3 +73,10 @@ body { background: var(--bg); }
 
 /* 9. Renewals */
 .rn-rem { min-width: 280px; max-width: 460px; font-size: 12.5px; line-height: 1.5; white-space: normal; }
+
+/* Renewals: clickable summary chips, PTM cell */
+.rn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.rn-chip { cursor: pointer; border: 1px solid transparent; font: inherit; font-size: 12.5px; font-weight: 600; }
+.rn-chip:hover { filter: brightness(0.96); }
+.rn-chip.on { box-shadow: 0 0 0 2px var(--teal); }
+.rn-ptmrm { margin-top: 6px; }

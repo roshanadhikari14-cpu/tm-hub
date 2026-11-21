@@ -649,18 +649,68 @@ function loadRenewals() {
   }
   return null;
 }
-app.get('/api/renewals', (req, res) => {
+// PTMs of the last 10 days, one summary per student: done / parent no-show / not marked / scheduled / none.
+async function renewalPtms() {
+  const today = istDate();
+  const from = addDays(today, -9);
+  const key = `ren|${from}|${today}`;
+  let hit = ptmRanges.get(key);
+  if (!hit || Date.now() - hit.at > 3 * 60 * 1000) {
+    hit = { at: Date.now(), key, data: await ptmMeetings(from, today) };
+    ptmRanges.set(key, hit);
+    if (ptmRanges.size > 12) ptmRanges.delete(ptmRanges.keys().next().value);
+  }
+  const remarks = Remarks.load();
+  const stateOf = (m) => {
+    if (m.status !== 'scheduled') return m.status;
+    const now = Date.now();
+    return new Date(m.start) > now ? 'upcoming' : new Date(m.end) > now ? 'live' : 'unmarked';
+  };
+  const rank = ['completed', 'no_show', 'unmarked', 'live', 'upcoming', 'cancelled'];
+  const by = new Map();
+  for (const m of hit.data) {
+    const l = by.get(String(m.studentId)) || [];
+    l.push(m);
+    by.set(String(m.studentId), l);
+  }
+  const out = new Map();
+  for (const [sid, list] of by) {
+    const ordered = list.slice().sort((a, b) => rank.indexOf(stateOf(a)) - rank.indexOf(stateOf(b)) || String(b.start).localeCompare(String(a.start)));
+    const rep = ordered[0];
+    const withRemark = list.find((m) => remarks[m.id]);
+    out.set(sid, {
+      id: rep.id,
+      state: stateOf(rep),
+      status: rep.status,
+      start: rep.start,
+      end: rep.end,
+      date: rep.date,
+      count: list.length,
+      minutes: list.filter((m) => m.status === 'completed').reduce((s, m) => s + (m.parentMinutes || 0), 0),
+      remark: remarks[rep.id] || (withRemark ? remarks[withRemark.id] : null) || null,
+    });
+  }
+  return { map: out, from, to: today };
+}
+app.get('/api/renewals', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const d = loadRenewals();
   if (!d) return res.status(404).json({ error: 'No renewal data loaded yet.' });
+  let ptm = null;
+  let ptmError = '';
+  try {
+    ptm = await renewalPtms();
+  } catch (e) {
+    ptmError = e.message;
+  }
   const tms = team();
   const tmOf = (n) => {
     const x = tms.find((m) => [m.name, m.lighthouseName, m.oldName].some((v) => v && v.toLowerCase() === String(n).toLowerCase()));
     return x ? x.name : n;
   };
-  let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm) }));
+  let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm), ptm: ptm ? (ptm.map.get(String(r.id)) || null) : undefined }));
   if (req.role === 'tm') rows = rows.filter((r) => r.tm === req.myTm);
-  res.json({ at: d.at, source: d.source, due: (rows[0] || {}).due || '', team: [...new Set(rows.map((r) => r.tm))].sort(), rows });
+  res.json({ at: d.at, source: d.source, due: (rows[0] || {}).due || '', team: [...new Set(rows.map((r) => r.tm))].sort(), ptmFrom: ptm && ptm.from, ptmTo: ptm && ptm.to, ptmError, rows });
 });
 // Owner: load a newer export of the same list (rows in the same shape).
 app.post('/api/renewals/import', (req, res) => {
