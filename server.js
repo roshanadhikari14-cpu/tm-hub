@@ -14,6 +14,7 @@ const G = require('./lib/google');
 const auth = require('./lib/auth');
 const persist = require('./lib/persist');
 const Remarks = require('./lib/ptmRemarks');
+const PRem = require('./lib/ptmReminders');
 const Parents = require('./lib/parents');
 const Access = require('./lib/access');
 const { DATA, CLOUD } = require('./lib/paths');
@@ -329,7 +330,7 @@ app.use(async (req, res, next) => {
   next();
 });
 // Sending mail and changing settings is for the owner only.
-app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/drive-check', '/api/email-check'], (req, res, next) =>
+app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/ptm-reminders', '/api/drive-check', '/api/email-check'], (req, res, next) =>
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 // A TM sees only their own students; other approved people see no student data.
@@ -1093,6 +1094,85 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+// ---------- PTM remark reminders (rule 1) ----------
+// A TM who conducted a PTM (Done) and has not written the remark 1 hour after it ended gets a warning mail from the
+// owner's mailbox, again about every 30 minutes until it is in. 11 AM to 8 PM IST, Monday to Saturday.
+const APP_URL = () => process.env.APP_URL || 'https://tm-task-mailer.vercel.app';
+async function sendOneMail({ to, subject, html }) {
+  if (G.account()) return G.send({ fromName: sender().name, to, subject, html });
+  return mailer().sendMail({ from: `"${sender().name}" <${senderAddr()}>`, to, subject, html });
+}
+async function pendingRemarks() {
+  const today = istDate();
+  const meetings = await ptmMeetings(addDays(today, -PRem.LOOKBACK_DAYS), today);
+  return PRem.pending(meetings, Remarks.load(), team(), Date.now());
+}
+async function runPtmReminders({ test = false } = {}) {
+  const st = PRem.load();
+  const now = istNow();
+  const inWindow = now.day !== PRem.WINDOW.skipDay && mins(now.time) >= mins(PRem.WINDOW.from) && mins(now.time) <= mins(PRem.WINDOW.to);
+  if (!test) {
+    if (!st.enabled) return { skipped: 'Reminders are switched off.' };
+    if (!inWindow) return { skipped: 'Outside 11 AM to 8 PM, Monday to Saturday.' };
+  }
+  let list = await pendingRemarks();
+  if (test && !list.length) {
+    const t = team()[0];
+    list = [{ tm: t, items: [{ student: 'Sample Student', studentId: '00000', start: new Date(Date.now() - 2 * 3600000).toISOString(), end: new Date(Date.now() - 3600000).toISOString(), minutes: 20 }] }];
+  }
+  const sent = [];
+  const failed = [];
+  for (const e of list) {
+    const lastMs = st.last[e.tm.name] ? Date.parse(st.last[e.tm.name]) : 0;
+    if (!test && Date.now() - lastMs < PRem.SPACING_MIN * 60000) continue;
+    const mail = PRem.buildMail(e, sender(), APP_URL() + '/#/ptm');
+    try {
+      await sendOneMail({ to: test ? senderAddr() : e.tm.email, subject: (test ? `[TEST for ${e.tm.name.split(' ')[0]}] ` : '') + mail.subject, html: mail.html });
+      if (!test) st.last[e.tm.name] = new Date().toISOString();
+      sent.push({ tm: e.tm.name, pending: e.items.length });
+    } catch (err) {
+      failed.push({ tm: e.tm.name, error: mailErr(err) });
+    }
+  }
+  if (!test) {
+    // a TM with nothing pending starts fresh: the next PTM is reminded as soon as its hour is up
+    for (const k of Object.keys(st.last)) if (!list.some((e) => e.tm.name === k)) delete st.last[k];
+    if (sent.length || failed.length) st.log = [{ at: new Date().toISOString(), sent, failed }, ...st.log].slice(0, 40);
+  }
+  PRem.save(st);
+  return { ok: !failed.length, sent, failed, pending: list.map((e) => ({ tm: e.tm.name, count: e.items.length })) };
+}
+app.get('/api/ptm-reminders', async (req, res) => {
+  const st = PRem.load();
+  let list = [];
+  let error = '';
+  try {
+    list = await pendingRemarks();
+  } catch (e) {
+    error = e.message;
+  }
+  res.json({
+    enabled: st.enabled,
+    rule: 'Reminder 1 hour after a PTM is done without a remark, then about every 30 minutes, 11 AM to 8 PM IST, Monday to Saturday.',
+    pending: list.map((e) => ({ tm: e.tm.name, email: e.tm.email, items: e.items.map((i) => ({ student: i.student, studentId: i.studentId, start: i.start })), lastReminder: st.last[e.tm.name] || null })),
+    log: st.log.slice(0, 10),
+    error,
+  });
+});
+app.post('/api/ptm-reminders/config', (req, res) => {
+  const st = PRem.load();
+  st.enabled = !!(req.body && req.body.enabled);
+  PRem.save(st);
+  res.json({ ok: true, enabled: st.enabled });
+});
+app.post('/api/ptm-reminders/test', async (req, res) => {
+  try {
+    res.json(await runPtmReminders({ test: true }));
+  } catch (e) {
+    res.status(500).json({ error: mailErr(e) });
+  }
+});
+
 // ---------- Scheduled jobs (Vercel Cron) ----------
 // vercel.json calls these Monday to Saturday at 11:00, 17:00 and 20:00 IST.
 app.get('/api/cron/:slot', async (req, res) => {
@@ -1101,6 +1181,13 @@ app.get('/api/cron/:slot', async (req, res) => {
   // time window below still means a stray call can only start the mail that
   // was due at that time anyway, and only once a day.
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Not allowed.' });
+  if (slot === 'ptm-remarks') {
+    try {
+      return res.json(await runPtmReminders());
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
   const c = loadConfig();
   const now = istNow();
   if (slot === 'baseline') {

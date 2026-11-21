@@ -1,0 +1,15 @@
+# Reminds TMs to write their PTM remarks (rule 1). The hub itself decides who is due and only sends between
+# 11 AM and 8 PM IST, Monday to Saturday, at most once about every 30 minutes per TM; this just calls it often enough.
+name: PTM remark reminders
+on:
+  schedule:
+    # UTC. 05:30 to 14:30 UTC = 11:00 to 20:00 IST.
+    - cron: '*/15 5-14 * * 1-6'
+  workflow_dispatch:
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the hub
+        run: curl -sS --max-time 120 "https://tm-task-mailer.vercel.app/api/cron/ptm-remarks"

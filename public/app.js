@@ -1244,6 +1244,7 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
+    <div class="card rise" id="remCard" style="margin-bottom:18px"><h3>⏰ PTM remark reminders</h3><div id="remBox" class="note">Loading…</div></div>
     <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
     <div class="card rise" style="margin-bottom:18px"><h3>🎙 My voice for hover read-outs</h3><div id="packBox" class="note">Loading…</div></div>
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
@@ -1282,6 +1283,42 @@ async function settings() {
           <div><button class="btn btn-ghost" id="saveEm">Save name</button></div>
           <div id="emRes"></div></div></div>
     </div>`;
+  const paintRem = async () => {
+    const box = $('#remBox');
+    if (!box) return;
+    try {
+      const j = await api('/api/ptm-reminders');
+      const t = (iso) => new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+      box.innerHTML = `<p style="margin:0 0 10px">${esc(j.rule)} Mails go from your mailbox to the TM who conducted the PTM.</p>
+        <label class="toggle"><input type="checkbox" id="remOn" ${j.enabled ? 'checked' : ''}><span class="sw"></span>${j.enabled ? 'On: TMs are being reminded' : 'Off: nothing is sent'}</label>
+        <div style="margin:12px 0"><button class="btn btn-ghost" id="remTest" type="button">Send me a test mail</button> <span class="note">The test goes only to you, never to a TM.</span></div>
+        <b>Waiting for a remark right now</b>${j.error ? `<p class="note" style="color:var(--red)">${esc(j.error)}</p>` : ''}
+        ${j.pending.length ? '<ul style="margin:6px 0 0;padding-left:18px">' + j.pending.map((p) => `<li><b>${esc(p.tm)}</b>: ${p.items.map((i) => esc(i.student)).join(', ')}${p.lastReminder ? ` <small style="color:var(--ink-3)">· last reminder ${esc(t(p.lastReminder))}</small>` : ''}</li>`).join('') + '</ul>' : '<p class="note" style="margin:6px 0 0">Nobody. Every PTM that is due has a remark.</p>'}
+        ${j.log.length ? '<details style="margin-top:10px"><summary style="cursor:pointer">Recent reminders</summary><ul style="margin:6px 0 0;padding-left:18px">' + j.log.map((l) => `<li>${esc(t(l.at))}: ${l.sent.map((x) => esc(x.tm) + ' (' + x.pending + ')').join(', ') || 'none sent'}${l.failed.length ? ' · failed: ' + l.failed.map((x) => esc(x.tm)).join(', ') : ''}</li>`).join('') + '</ul></details>' : ''}`;
+      $('#remOn').onchange = async (e) => {
+        try {
+          await api('/api/ptm-reminders/config', { body: { enabled: e.target.checked } });
+          toast(e.target.checked ? 'Reminders switched on' : 'Reminders switched off', 'ok');
+          paintRem();
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+      $('#remTest').onclick = async (e) => {
+        e.target.disabled = true;
+        try {
+          await api('/api/ptm-reminders/test', { body: {} });
+          toast('Test mail sent to you', 'ok');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+        e.target.disabled = false;
+      };
+    } catch (err) {
+      box.textContent = err.message;
+    }
+  };
+  paintRem();
   $('#saveEm').onclick = async () => {
     try {
       await api('/api/email-settings', { body: { fromName: $('#emName').value } });
