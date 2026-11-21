@@ -70,3 +70,6 @@ body { background: var(--bg); }
 .tm-card .magic-layer, .profile-hero .magic-layer { display: none; }
 .spotlight-card__light, .spotlight-card__grain, .spotlight-card__border, .spotlight-card__edge { display: none; }
 .kpi .ico { background: #eef0f6; color: var(--ink-2); }
+
+/* 9. Renewals */
+.rn-rem { min-width: 280px; max-width: 460px; font-size: 12.5px; line-height: 1.5; white-space: normal; }

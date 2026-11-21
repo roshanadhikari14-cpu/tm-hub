@@ -638,6 +638,40 @@ app.get('/api/reports/file/:id', (req, res) => {
   res.send(fs.readFileSync(f));
 });
 
+// Renewals: the Vantage "Renewal Discussion" list (snapshot). A TM sees only their own students.
+const RENEWALS_SEED = path.join(ROOT, 'seed', 'renewal-list.json');
+const RENEWALS_FILE = path.join(DATA, 'renewal-list.json');
+function loadRenewals() {
+  for (const p of [RENEWALS_FILE, RENEWALS_SEED]) {
+    try {
+      return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch {}
+  }
+  return null;
+}
+app.get('/api/renewals', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const d = loadRenewals();
+  if (!d) return res.status(404).json({ error: 'No renewal data loaded yet.' });
+  const tms = team();
+  const tmOf = (n) => {
+    const x = tms.find((m) => [m.name, m.lighthouseName, m.oldName].some((v) => v && v.toLowerCase() === String(n).toLowerCase()));
+    return x ? x.name : n;
+  };
+  let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm) }));
+  if (req.role === 'tm') rows = rows.filter((r) => r.tm === req.myTm);
+  res.json({ at: d.at, source: d.source, due: (rows[0] || {}).due || '', team: [...new Set(rows.map((r) => r.tm))].sort(), rows });
+});
+// Owner: load a newer export of the same list (rows in the same shape).
+app.post('/api/renewals/import', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can load renewal data.' });
+  const b = req.body || {};
+  if (!Array.isArray(b.rows) || !b.rows.length || !b.rows.every((r) => r && r.id && r.name)) return res.status(400).json({ error: 'Send {rows:[{id,name,...}]}.' });
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(RENEWALS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Uploaded', rows: b.rows }));
+  res.json({ ok: true, count: b.rows.length });
+});
+
 // All students the person may see, with this month's PTMs (done, last 30 days) and their report history.
 let ptm30 = { at: 0, data: null };
 app.get('/api/students-all', async (req, res) => {

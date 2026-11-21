@@ -166,7 +166,7 @@ async function load(force) {
   paintChrome();
   return S.data;
 }
-const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students'], viewer: ['dashboard'] };
+const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students', 'renewals'], viewer: ['dashboard'] };
 function roleOK(name) {
   const role = S.status && S.status.role;
   return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);
@@ -229,7 +229,128 @@ $('#refreshBtn').onclick = async () => {
 };
 
 // ---------- router ----------
-const routes = { dashboard, team, tm, tasks, ptm, students, reports, schedule, settings };
+// ---------- Renewals: the Vantage renewal list with filters ----------
+let rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
+const rnIsOwner = () => !S.status || !S.status.role || S.status.role === 'owner';
+function rnUpload() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'application/json,.json';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      const out = await api('/api/renewals/import', { body: { rows: j.rows || j, source: j.source || 'Uploaded from ' + f.name } });
+      toast('Loaded ' + out.count + ' students', 'ok');
+      renewals();
+    } catch (e) {
+      toast(e.message || 'Could not read that file', 'err');
+    }
+  };
+  inp.click();
+}
+async function renewals() {
+  title('Renewals', 'Students due to renew, with their status and remarks');
+  view.innerHTML = '<div class="card empty">Loading renewals…</div>';
+  let j;
+  try {
+    j = await api('/api/renewals');
+  } catch (err) {
+    view.innerHTML = `<div class="card"><h3>No renewal data loaded</h3><p class="note">${esc(err.message)}</p>${rnIsOwner() ? '<button class="btn btn-primary" id="rnUp" type="button">⬆ Upload renewal data (.json)</button>' : ''}</div>`;
+    const up = $('#rnUp');
+    if (up) up.onclick = rnUpload;
+    return;
+  }
+  const rows = j.rows;
+  const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const opt = (id, label, list, cur) => `<select class="sel" id="${id}" title="${label}"><option value="">${label}</option>${list.map((v) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+  title('Renewals', `${j.source || ''} · loaded ${new Date(j.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`);
+  view.innerHTML = `
+    <div class="toolbar team-tools" style="flex-wrap:wrap">
+      <div class="search"><input id="rnQ" placeholder="Search ${rows.length} students by name, ID, school or remarks…" autocomplete="off" value="${esc(rnState.q)}"></div>
+      ${j.team.length > 1 ? opt('rnTm', 'All TMs', j.team, rnState.tm) : ''}
+      ${opt('rnOffice', 'All offices', uniq('office'), rnState.office)}
+      ${opt('rnStatus', 'Any sales status', uniq('status'), rnState.status)}
+      ${opt('rnAt', 'Any academic status', uniq('atStatus'), rnState.at)}
+      ${opt('rnSchool', 'All schools', uniq('school'), rnState.school)}
+      ${opt('rnGrade', 'All classes', uniq('grade'), rnState.grade)}
+      ${opt('rnBand', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'], rnState.band)}
+      <label class="fchip" style="cursor:pointer"><input type="checkbox" id="rnRem" ${rnState.rem ? 'checked' : ''}> With remarks only</label>
+      <select class="sel" id="rnSort" title="Sort"><option value="att" ${rnState.sort === 'att' ? 'selected' : ''}>Lowest attendance first</option><option value="name" ${rnState.sort === 'name' ? 'selected' : ''}>Name A to Z</option><option value="tm" ${rnState.sort === 'tm' ? 'selected' : ''}>TM</option></select>
+      <span style="flex:1"></span>
+      ${rnIsOwner() ? '<button class="btn btn-ghost" id="rnUp" type="button" title="Load a newer export of the renewal list">⬆ Upload data</button>' : ''}
+      <button class="btn btn-ghost" id="rnClear" type="button">Clear filters</button>
+      <button class="btn btn-ghost" id="rnCsv" type="button">⬇ CSV</button>
+    </div>
+    <div class="ptm-sum" id="rnSum" style="margin:-4px 0 12px"></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
+    <div id="rnMore" style="margin:12px 0"></div>`;
+  const tagOf = (v, kind) => {
+    if (!v) return '';
+    const sales = { 'Will Pay': 'ok', 'Potential Discontinuation': 'amber', Discontinued: 'red' };
+    const acad = { 'Will Pay': 'ok', 'Need Intervention': 'amber', 'Confirmed Discontinuation': 'red', 'Batch Blocking': 'red' };
+    return `<span class="ptag ${(kind === 'sales' ? sales : acad)[v] || 'grey'}">${esc(v)}</span>`;
+  };
+  const filtered = () => {
+    const q = rnState.q.trim().toLowerCase();
+    let l = rows.filter((r) => (!rnState.tm || r.tm === rnState.tm) && (!rnState.office || r.office === rnState.office) && (!rnState.status || r.status === rnState.status) && (!rnState.at || r.atStatus === rnState.at) && (!rnState.school || r.school === rnState.school) && (!rnState.grade || r.grade === rnState.grade) && (!rnState.band || r.band === rnState.band) && (!rnState.rem || r.remarks) && (!q || `${r.name} ${r.id} ${r.school} ${r.remarks} ${r.office} ${r.tm}`.toLowerCase().includes(q)));
+    const num = (r) => (r.att === '' ? 999 : Number(r.att));
+    return l.slice().sort((a, b) => (rnState.sort === 'name' ? a.name.localeCompare(b.name) : rnState.sort === 'tm' ? a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) : num(a) - num(b) || a.name.localeCompare(b.name)));
+  };
+  const paint = () => {
+    const l = filtered();
+    const shown = l.slice(0, rnState.limit);
+    const n = (f) => l.filter(f).length;
+    $('#rnSum').innerHTML = `<span class="ptag blue">${l.length} students</span><span class="ptag ok">${n((r) => r.atStatus === 'Will Pay')} will pay (academic)</span><span class="ptag amber">${n((r) => r.atStatus === 'Need Intervention')} need intervention</span><span class="ptag red">${n((r) => r.status === 'Potential Discontinuation' || r.status === 'Discontinued' || r.atStatus === 'Confirmed Discontinuation')} at risk of leaving</span><span class="ptag grey">${n((r) => r.status === 'Not set')} sales status not set</span><span class="ptag">${n((r) => r.remarks)} with remarks</span>`;
+    $('#rnBody').innerHTML = shown.map((r, i) => `<tr>
+        <td class="num">${i + 1}</td>
+        <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b><br><small style="color:var(--ink-3)">ID ${esc(r.id)} · Class ${esc(r.grade)}${r.batch ? ' · ' + esc(r.batch) : ''}</small></td>
+        <td style="min-width:170px">${esc(r.school)}</td>
+        <td style="white-space:nowrap">${esc(r.tm)}</td>
+        <td style="min-width:130px">${esc(r.office)}</td>
+        <td style="min-width:150px">${tagOf(r.status, 'sales')}<br>${tagOf(r.atStatus, 'at')}<br><small style="color:var(--ink-3)">Attendance ${esc(r.att || '—')}${r.att !== '' ? '%' : ''}</small></td>
+        <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No student matches</td></tr>';
+    $('#rnMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="rnAll">Show all ${l.length}</button>` : `<span class="note">${l.length} student${l.length === 1 ? '' : 's'}</span>`;
+    const all = $('#rnAll');
+    if (all) all.onclick = () => ((rnState.limit = 9999), paint());
+  };
+  paint();
+  const bind = (id, key, ev) => {
+    const el = $('#' + id);
+    if (el) el[ev || 'onchange'] = (e) => {
+      rnState[key] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+      rnState.limit = 150;
+      paint();
+    };
+  };
+  bind('rnQ', 'q', 'oninput');
+  bind('rnTm', 'tm');
+  bind('rnOffice', 'office');
+  bind('rnStatus', 'status');
+  bind('rnAt', 'at');
+  bind('rnSchool', 'school');
+  bind('rnGrade', 'grade');
+  bind('rnBand', 'band');
+  bind('rnRem', 'rem');
+  bind('rnSort', 'sort');
+  if ($('#rnUp')) $('#rnUp').onclick = rnUpload;
+  $('#rnClear').onclick = () => {
+    rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
+    renewals();
+  };
+  $('#rnCsv').onclick = () => {
+    const l = filtered();
+    const cols = [['Student ID', 'id'], ['Student', 'name'], ['School', 'school'], ['Class', 'grade'], ['TM', 'tm'], ['Office', 'office'], ['Sales status', 'status'], ['Academic status', 'atStatus'], ['Attendance %', 'att'], ['Remarks', 'remarks']];
+    const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(r[c[1]])).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+    a.download = 'renewals.csv';
+    a.click();
+  };
+}
+const routes = { dashboard, team, tm, tasks, ptm, students, renewals, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
