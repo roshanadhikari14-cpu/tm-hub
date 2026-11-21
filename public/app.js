@@ -230,8 +230,18 @@ $('#refreshBtn').onclick = async () => {
 
 // ---------- router ----------
 // ---------- Renewals: the Vantage renewal list with filters ----------
-const RN_BLANK = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rtype: '', ptm: '', quick: '', rem: false, sort: 'att', limit: 150 };
-let rnState = { ...RN_BLANK };
+const rnBlank = () => ({ q: '', tm: [], office: [], status: [], at: [], school: [], grade: [], band: [], rtype: [], ptm: [], quick: '', rem: false, sort: 'att', limit: 150 });
+let rnState = rnBlank();
+// tick-box dropdown: pick several values at once
+function rnMs(key, label, options, cur) {
+  const many = options.length > 10;
+  const names = options.filter((o) => cur.includes(o.v)).map((o) => o.l);
+  const text = !names.length ? label : names.length <= 2 ? names.join(', ') : names.length + ' selected';
+  return `<div class="ms" data-key="${key}" data-label="${esc(label)}"><button type="button" class="ms-btn ${names.length ? 'has' : ''}" title="${esc(label)}"><span>${esc(text)}</span><i>▾</i></button>
+    <div class="ms-pop" hidden>${many ? '<input class="ms-q" placeholder="Search…" autocomplete="off">' : ''}
+      <div class="ms-list">${options.map((o) => `<label class="ms-opt"><input type="checkbox" value="${esc(o.v)}" ${cur.includes(o.v) ? 'checked' : ''}><span>${esc(o.l)}</span></label>`).join('')}</div>
+      <div class="ms-foot"><button type="button" class="ms-clear">Clear</button><button type="button" class="ms-done">Done</button></div></div></div>`;
+}
 const rnIsOwner = () => !S.status || !S.status.role || S.status.role === 'owner';
 // One hidden file input lives in the page; the Upload button opens it.
 function rnEnsureInput() {
@@ -291,20 +301,21 @@ async function renewals() {
   for (const r of rows) if (r.ptm) Object.assign(r.ptm, { tm: r.tm, student: r.name });
   window.__ptmMeetings = rows.filter((r) => r.ptm).map((r) => r.ptm);
   const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const opt = (id, label, list, cur) => `<select class="sel" id="${id}" title="${label}"><option value="">${label}</option>${list.map((v) => (Array.isArray(v) ? `<option value="${esc(v[0])}" ${cur === v[0] ? 'selected' : ''}>${esc(v[1])}</option>` : `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(v)}</option>`)).join('')}</select>`;
+  const O = (list) => list.map((v) => (Array.isArray(v) ? { v: v[0], l: v[1] } : { v, l: v }));
+  const opt = (key, label, list) => rnMs(key, label, O(list), rnState[key]);
   title('Renewals', `${j.source || ''} · loaded ${new Date(j.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`);
   view.innerHTML = `
     <div class="toolbar team-tools" style="flex-wrap:wrap">
       <div class="search"><input id="rnQ" placeholder="Search ${rows.length} students by name, ID, school or remarks…" autocomplete="off" value="${esc(rnState.q)}"></div>
-      ${j.team.length > 1 ? opt('rnTm', 'All TMs', j.team, rnState.tm) : ''}
-      ${opt('rnOffice', 'All offices', uniq('office'), rnState.office)}
-      ${opt('rnStatus', 'Any sales status', uniq('status'), rnState.status)}
-      ${opt('rnAt', 'Any academic status', uniq('atStatus'), rnState.at)}
-      ${opt('rnRtype', 'Any renewal', ['1st', '2nd', '3rd', '3rd +'].filter((v) => rows.some((r) => r.rtype === v)), rnState.rtype)}
-      ${opt('rnPtm', 'Any PTM status', [['completed', 'PTM done'], ['no_show', 'Parent no-show'], ['unmarked', 'Not marked'], ['upcoming', 'Scheduled'], ['none', 'No PTM in 10 days']], rnState.ptm)}
-      ${opt('rnSchool', 'All schools', uniq('school'), rnState.school)}
-      ${opt('rnGrade', 'All classes', uniq('grade'), rnState.grade)}
-      ${opt('rnBand', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'], rnState.band)}
+      ${j.team.length > 1 ? opt('tm', 'All TMs', j.team) : ''}
+      ${opt('office', 'All offices', uniq('office'))}
+      ${opt('status', 'Any sales status', uniq('status'))}
+      ${opt('at', 'Any academic status', uniq('atStatus'))}
+      ${opt('rtype', 'Any renewal', [['1st', '1st renewal'], ['2nd', '2nd renewal'], ['3rd', '3rd renewal'], ['3rd +', '3rd+ renewal']].filter((v) => rows.some((r) => r.rtype === v[0])))}
+      ${opt('ptm', 'Any PTM status', [['completed', 'PTM done'], ['no_show', 'Parent no-show'], ['unmarked', 'Not marked'], ['upcoming', 'Scheduled'], ['none', 'No PTM in 10 days']])}
+      ${opt('school', 'All schools', uniq('school'))}
+      ${opt('grade', 'All classes', uniq('grade').map((g) => [g, 'Class ' + g]))}
+      ${opt('band', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'])}
       <label class="fchip" style="cursor:pointer"><input type="checkbox" id="rnRem" ${rnState.rem ? 'checked' : ''}> With remarks only</label>
       <select class="sel" id="rnSort" title="Sort"><option value="att" ${rnState.sort === 'att' ? 'selected' : ''}>Lowest attendance first</option><option value="name" ${rnState.sort === 'name' ? 'selected' : ''}>Name A to Z</option><option value="tm" ${rnState.sort === 'tm' ? 'selected' : ''}>TM</option></select>
       <span style="flex:1"></span>
@@ -331,13 +342,14 @@ async function renewals() {
     notset: (r) => r.status === 'Not set',
     remarks: (r) => !!r.remarks,
   };
+  const has = (k, v) => !rnState[k].length || rnState[k].includes(v);
   const filtered = (skipQuick) => {
     const q = rnState.q.trim().toLowerCase();
     const l = rows.filter(
       (r) =>
-        (!rnState.tm || r.tm === rnState.tm) && (!rnState.office || r.office === rnState.office) && (!rnState.status || r.status === rnState.status) && (!rnState.at || r.atStatus === rnState.at) &&
-        (!rnState.rtype || r.rtype === rnState.rtype) && (!rnState.ptm || rnPtmKey(r) === rnState.ptm) && (!rnState.school || r.school === rnState.school) && (!rnState.grade || r.grade === rnState.grade) &&
-        (!rnState.band || r.band === rnState.band) && (!rnState.rem || r.remarks) && (!q || `${r.name} ${r.id} ${r.school} ${r.remarks} ${r.office} ${r.tm}`.toLowerCase().includes(q)) &&
+        has('tm', r.tm) && has('office', r.office) && has('status', r.status) && has('at', r.atStatus) &&
+        has('rtype', r.rtype) && has('ptm', rnPtmKey(r)) && has('school', r.school) && has('grade', r.grade) &&
+        has('band', r.band) && (!rnState.rem || r.remarks) && (!q || `${r.name} ${r.id} ${r.school} ${r.remarks} ${r.office} ${r.tm}`.toLowerCase().includes(q)) &&
         (skipQuick || !rnState.quick || QUICK[rnState.quick](r))
     );
     const num = (r) => (r.att === '' ? 999 : Number(r.att));
@@ -393,21 +405,53 @@ async function renewals() {
     };
   };
   bind('rnQ', 'q', 'oninput');
-  bind('rnTm', 'tm');
-  bind('rnOffice', 'office');
-  bind('rnStatus', 'status');
-  bind('rnAt', 'at');
-  bind('rnRtype', 'rtype');
-  bind('rnPtm', 'ptm');
-  bind('rnSchool', 'school');
-  bind('rnGrade', 'grade');
-  bind('rnBand', 'band');
   bind('rnRem', 'rem');
+  // tick-box dropdowns
+  const msLabel = (box) => {
+    const checked = [...box.querySelectorAll('input:checked')].map((i) => i.nextElementSibling.textContent);
+    box.querySelector('.ms-btn span').textContent = !checked.length ? box.dataset.label : checked.length <= 2 ? checked.join(', ') : checked.length + ' selected';
+    box.querySelector('.ms-btn').classList.toggle('has', checked.length > 0);
+  };
+  const closeAll = (except) => $$('.ms-pop').forEach((p) => { if (p !== except) p.hidden = true; });
+  $$('.ms').forEach((box) => {
+    const key = box.dataset.key;
+    const pop = box.querySelector('.ms-pop');
+    box.querySelector('.ms-btn').onclick = (e) => {
+      e.stopPropagation();
+      closeAll(pop);
+      pop.hidden = !pop.hidden;
+      const q = box.querySelector('.ms-q');
+      if (q && !pop.hidden) q.focus();
+    };
+    pop.onclick = (e) => e.stopPropagation();
+    box.querySelectorAll('.ms-opt input').forEach((i) => (i.onchange = () => {
+      rnState[key] = [...box.querySelectorAll('.ms-opt input:checked')].map((x) => x.value);
+      rnState.limit = 150;
+      msLabel(box);
+      paint();
+    }));
+    box.querySelector('.ms-clear').onclick = () => {
+      box.querySelectorAll('.ms-opt input').forEach((i) => (i.checked = false));
+      rnState[key] = [];
+      msLabel(box);
+      paint();
+    };
+    box.querySelector('.ms-done').onclick = () => (pop.hidden = true);
+    const q = box.querySelector('.ms-q');
+    if (q) q.oninput = () => {
+      const t = q.value.trim().toLowerCase();
+      box.querySelectorAll('.ms-opt').forEach((o) => (o.hidden = !!t && !o.textContent.toLowerCase().includes(t)));
+    };
+  });
+  if (!window.__rnMsBound) {
+    window.__rnMsBound = true;
+    document.addEventListener('click', () => $$('.ms-pop').forEach((p) => (p.hidden = true)));
+  }
   bind('rnSort', 'sort');
   rnEnsureInput();
   if ($('#rnUp')) $('#rnUp').onclick = rnUpload;
   $('#rnClear').onclick = () => {
-    rnState = { ...RN_BLANK };
+    rnState = rnBlank();
     renewals();
   };
   $('#rnCsv').onclick = () => {
