@@ -1107,11 +1107,11 @@ async function pendingRemarks() {
   const meetings = await ptmMeetings(addDays(today, -PRem.LOOKBACK_DAYS), today);
   return PRem.pending(meetings, Remarks.load(), team(), Date.now());
 }
-async function runPtmReminders({ test = false } = {}) {
+async function runPtmReminders({ test = false, force = false } = {}) {
   const st = PRem.load();
   const now = istNow();
   const inWindow = now.day !== PRem.WINDOW.skipDay && mins(now.time) >= mins(PRem.WINDOW.from) && mins(now.time) <= mins(PRem.WINDOW.to);
-  if (!test) {
+  if (!test && !force) {
     if (!st.enabled) return { skipped: 'Reminders are switched off.' };
     if (!inWindow) return { skipped: 'Outside 11 AM to 8 PM, Monday to Saturday.' };
   }
@@ -1124,7 +1124,7 @@ async function runPtmReminders({ test = false } = {}) {
   const failed = [];
   for (const e of list) {
     const lastMs = st.last[e.tm.name] ? Date.parse(st.last[e.tm.name]) : 0;
-    if (!test && Date.now() - lastMs < PRem.SPACING_MIN * 60000) continue;
+    if (!test && !force && Date.now() - lastMs < PRem.SPACING_MIN * 60000) continue;
     const mail = PRem.buildMail(e, sender(), APP_URL() + '/#/ptm');
     try {
       await sendOneMail({ to: test ? senderAddr() : e.tm.email, subject: (test ? `[TEST for ${e.tm.name.split(' ')[0]}] ` : '') + mail.subject, html: mail.html });
@@ -1164,6 +1164,14 @@ app.post('/api/ptm-reminders/config', (req, res) => {
   st.enabled = !!(req.body && req.body.enabled);
   PRem.save(st);
   res.json({ ok: true, enabled: st.enabled });
+});
+// One real round now, whatever the time or day (the normal schedule then carries on from the next window).
+app.post('/api/ptm-reminders/send-now', async (req, res) => {
+  try {
+    res.json(await runPtmReminders({ force: true }));
+  } catch (e) {
+    res.status(500).json({ error: mailErr(e) });
+  }
 });
 app.post('/api/ptm-reminders/test', async (req, res) => {
   try {
