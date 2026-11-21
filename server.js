@@ -1135,7 +1135,7 @@ async function pendingRemarks() {
   const meetings = await ptmMeetings(addDays(today, -PRem.LOOKBACK_DAYS), today);
   return PRem.pending(meetings, Remarks.load(), team(), Date.now());
 }
-async function runPtmReminders({ test = false, force = false } = {}) {
+async function runPtmReminders({ test = false, force = false, only = null } = {}) {
   const st = PRem.load();
   const now = istNow();
   const inWindow = now.day !== PRem.WINDOW.skipDay && mins(now.time) >= mins(PRem.WINDOW.from) && mins(now.time) <= mins(PRem.WINDOW.to);
@@ -1148,6 +1148,7 @@ async function runPtmReminders({ test = false, force = false } = {}) {
     const t = team()[0];
     list = [{ tm: t, items: [{ student: 'Sample Student', studentId: '00000', start: new Date(Date.now() - 2 * 3600000).toISOString(), end: new Date(Date.now() - 3600000).toISOString(), minutes: 20 }] }];
   }
+  if (only && only.length) list = list.filter((e) => only.includes(e.tm.name));
   const sent = [];
   const failed = [];
   for (const e of list) {
@@ -1181,6 +1182,7 @@ app.get('/api/ptm-reminders', async (req, res) => {
   }
   res.json({
     enabled: st.enabled,
+    onlySupported: true,
     rule: 'Reminder 1 hour after a PTM is done without a remark, then about every 30 minutes, 11 AM to 8 PM IST, Monday to Saturday.',
     pending: list.map((e) => ({ tm: e.tm.name, email: e.tm.email, items: e.items.map((i) => ({ student: i.student, studentId: i.studentId, start: i.start })), lastReminder: st.last[e.tm.name] || null })),
     log: st.log.slice(0, 10),
@@ -1196,7 +1198,8 @@ app.post('/api/ptm-reminders/config', (req, res) => {
 // One real round now, whatever the time or day (the normal schedule then carries on from the next window).
 app.post('/api/ptm-reminders/send-now', async (req, res) => {
   try {
-    res.json(await runPtmReminders({ force: true }));
+    const only = Array.isArray(req.body && req.body.only) ? req.body.only.map(String) : null;
+    res.json(await runPtmReminders({ force: true, only }));
   } catch (e) {
     res.status(500).json({ error: mailErr(e) });
   }
