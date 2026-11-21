@@ -1069,6 +1069,8 @@ app.post('/api/access/decide', (req, res) => {
 
 // Log in to the hub.
 app.get('/auth/login', (req, res) => startGoogle(req, res, 'login'));
+// A TM connects their own mailbox (send permission only).
+app.get('/auth/mailbox', (req, res) => startGoogle(req, res, 'tm'));
 // Connect the mailbox the hub sends from (also asks for permission to send).
 app.get('/auth/google', (req, res) => startGoogle(req, res, 'send'));
 app.get('/auth/logout', (req, res) => {
@@ -1083,6 +1085,14 @@ app.get('/auth/google/callback', async (req, res) => {
     if (!G.allowed(who.email)) throw new Error(`${who.email} is not an @${G.DOMAIN} account.`);
     if (GATED && !mayLogin(who.email)) return res.status(403).send(await accessRequestPage(req, who));
     if (GATED) auth.signIn(req, res, who.email);
+    if (who.mode === 'tm') {
+      const isTm = team().some((t) => String(t.email).toLowerCase() === who.email) || who.email === ownerEmail();
+      if (!isTm) throw new Error(`${who.email} is not on the TM list, so a mailbox can't be connected for it.`);
+      if (!who.canSend) throw new Error('Permission to send email was not ticked on the Google screen. Try again and allow it.');
+      if (!who.refreshToken) throw new Error('Google did not return a long-term connection. Try again.');
+      G.saveTm(who.email, who.name, who.refreshToken);
+      return res.send(page(true, `Connected ${who.email}. Mails can now be sent from your own address when a rule asks for it. You can disconnect any time from the sidebar.`));
+    }
     if (who.mode !== 'send') return res.redirect('/');
     if (GATED && who.email !== ownerEmail()) throw new Error(`Only ${ownerEmail() || 'the owner'} can connect the mailbox. You signed in as ${who.email}.`);
     if (!who.canSend) throw new Error('Permission to send email was not ticked on the Google screen. Try again and allow it.');
@@ -1092,6 +1102,24 @@ app.get('/auth/google/callback', async (req, res) => {
   } catch (e) {
     res.status(400).send(page(false, e.message, '/'));
   }
+});
+
+// ---------- Each TM's own mailbox ----------
+app.get('/api/my-mailbox', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const me = req.user || ownerEmail();
+  res.json({ email: me, connected: req.role === 'owner' ? Boolean(G.account()) : Boolean(G.tmAccount(me)) });
+});
+app.post('/api/my-mailbox/disconnect', (req, res) => {
+  if (req.role !== 'tm') return res.status(403).json({ error: 'Only a TM can disconnect their own mailbox here.' });
+  G.removeTm(req.user);
+  res.json({ ok: true });
+});
+// Owner: who has connected
+app.get('/api/mailboxes', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can see this.' });
+  const on = new Map(G.listTm().map((a) => [a.email, a.at]));
+  res.json({ hub: G.account() ? G.account().email : null, tms: team().map((t) => ({ name: t.name, email: t.email, connected: on.has(String(t.email).toLowerCase()), at: on.get(String(t.email).toLowerCase()) || null })) });
 });
 
 // ---------- PTM remark reminders (rule 1) ----------

@@ -171,7 +171,32 @@ function roleOK(name) {
   const role = S.status && S.status.role;
   return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);
 }
+// "Connect my mailbox" link in the sidebar (TMs; the owner already has the hub mailbox)
+async function paintMailbox() {
+  const el = document.getElementById('mbLink');
+  if (!el || !S.status || S.status.role !== 'tm') {
+    if (el) el.innerHTML = '';
+    return;
+  }
+  try {
+    const j = await api('/api/my-mailbox');
+    el.innerHTML = j.connected
+      ? '<span class="mb-ok">✉ Your mailbox is connected</span><a href="#" id="mbOff">Disconnect</a>'
+      : '<a class="mb-on" href="/auth/mailbox">✉ Connect my mailbox</a><small>So mails can go from your own address</small>';
+    const off = document.getElementById('mbOff');
+    if (off) off.onclick = async (e) => {
+      e.preventDefault();
+      if (!confirm('Disconnect your mailbox? Mails will no longer be sent from your address.')) return;
+      await api('/api/my-mailbox/disconnect', { body: {} });
+      toast('Mailbox disconnected', 'ok');
+      paintMailbox();
+    };
+  } catch {
+    el.innerHTML = '';
+  }
+}
 function paintChrome() {
+  setTimeout(paintMailbox, 0);
   const st = S.status;
   if (!st) return;
   const role = st.role || 'owner';
@@ -1244,6 +1269,7 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
+    <div class="card rise" id="mbCard" style="margin-bottom:18px"><h3>✉ TM mailboxes</h3><div id="mbBox" class="note">Loading…</div></div>
     <div class="card rise" id="remCard" style="margin-bottom:18px"><h3>⏰ PTM remark reminders</h3><div id="remBox" class="note">Loading…</div></div>
     <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
     <div class="card rise" style="margin-bottom:18px"><h3>🎙 My voice for hover read-outs</h3><div id="packBox" class="note">Loading…</div></div>
@@ -1319,6 +1345,15 @@ async function settings() {
     }
   };
   paintRem();
+  api('/api/mailboxes')
+    .then((j) => {
+      const box = $('#mbBox');
+      if (!box) return;
+      box.innerHTML = `<p style="margin:0 0 10px">Each TM connects their own Google mailbox once (the “Connect my mailbox” link in their sidebar). Mails that a rule sets to “from the TM” then go out from the TM's own address. Google asks them for permission to send mail only; they can disconnect any time.</p>
+        <ul style="margin:0;padding-left:18px">${j.tms.map((t) => `<li><b>${esc(t.name)}</b> <small style="color:var(--ink-3)">${esc(t.email)}</small> · ${t.connected ? '<span style="color:var(--green)">connected</span>' : '<span style="color:var(--ink-3)">not connected yet</span>'}</li>`).join('')}</ul>
+        <p class="note" style="margin:10px 0 0">Hub mailbox (used for reminders): ${j.hub ? esc(j.hub) : 'not connected'}</p>`;
+    })
+    .catch((e) => ($('#mbBox') && ($('#mbBox').textContent = e.message)));
   $('#saveEm').onclick = async () => {
     try {
       await api('/api/email-settings', { body: { fromName: $('#emName').value } });

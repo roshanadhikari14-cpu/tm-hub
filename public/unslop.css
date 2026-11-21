@@ -104,3 +104,9 @@ body { background: var(--bg); }
 .ptag.rn-r2 { background: #e4effd; color: #1c5fb8; }
 .ptag.rn-r3 { background: #fff0d6; color: #946000; }
 .ptag.rn-r4 { background: #efe6fb; color: #6a35b8; }
+
+/* Connect my mailbox (sidebar, TMs) */
+.mb-link { margin: 10px 14px 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.mb-link a { color: #f2d28a; text-decoration: none; font-weight: 600; }
+.mb-link a:hover { text-decoration: underline; }
+.mb-link small, .mb-link .mb-ok { color: #9aa0c0; }
