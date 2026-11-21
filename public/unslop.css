@@ -98,3 +98,9 @@ body { background: var(--bg); }
 .ms-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--hair); }
 .ms-clear { border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 13px; cursor: pointer; }
 .ms-done { border: 0; background: var(--teal); color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* Renewal number colours: 1st green, 2nd blue, 3rd amber, 3rd+ purple */
+.ptag.rn-r1 { background: #e3f5ea; color: #17703f; }
+.ptag.rn-r2 { background: #e4effd; color: #1c5fb8; }
+.ptag.rn-r3 { background: #fff0d6; color: #946000; }
+.ptag.rn-r4 { background: #efe6fb; color: #6a35b8; }

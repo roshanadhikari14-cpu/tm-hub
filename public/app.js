@@ -388,7 +388,7 @@ async function renewals() {
         <td style="white-space:nowrap">${esc(r.tm)}</td>
         <td style="min-width:130px">${esc(r.office)}</td>
         <td style="min-width:150px">${tagOf(r.status, 'sales')}<br>${tagOf(r.atStatus, 'at')}<br><small style="color:var(--ink-3)">Attendance ${esc(r.att || '—')}${r.att !== '' ? '%' : ''}</small></td>
-        <td style="white-space:nowrap">${r.rtype ? `<span class="ptag blue">${esc(r.rtype)}</span>` : '<small style="color:var(--ink-3)">—</small>'}</td>
+        <td style="white-space:nowrap">${r.rtype ? `<span class="ptag rn-r${({ '1st': 1, '2nd': 2, '3rd': 3, '3rd +': 4 })[r.rtype] || 0}">${esc(r.rtype)}</span>` : '<small style="color:var(--ink-3)">—</small>'}</td>
         <td style="min-width:200px">${ptmCell(r)}</td>
         <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No student matches</td></tr>';
     $('#rnMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="rnAll">Show all ${l.length}</button>` : `<span class="note">${l.length} student${l.length === 1 ? '' : 's'}</span>`;
