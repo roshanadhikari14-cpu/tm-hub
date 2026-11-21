@@ -232,10 +232,15 @@ $('#refreshBtn').onclick = async () => {
 // ---------- Renewals: the Vantage renewal list with filters ----------
 let rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
 const rnIsOwner = () => !S.status || !S.status.role || S.status.role === 'owner';
-function rnUpload() {
-  const inp = document.createElement('input');
+// One hidden file input lives in the page; the Upload button opens it.
+function rnEnsureInput() {
+  let inp = document.getElementById('rnFile');
+  if (inp) return inp;
+  inp = document.createElement('input');
   inp.type = 'file';
+  inp.id = 'rnFile';
   inp.accept = 'application/json,.json';
+  inp.hidden = true;
   inp.onchange = async () => {
     const f = inp.files && inp.files[0];
     if (!f) return;
@@ -243,12 +248,17 @@ function rnUpload() {
       const j = JSON.parse(await f.text());
       const out = await api('/api/renewals/import', { body: { rows: j.rows || j, source: j.source || 'Uploaded from ' + f.name } });
       toast('Loaded ' + out.count + ' students', 'ok');
+      inp.value = '';
       renewals();
     } catch (e) {
       toast(e.message || 'Could not read that file', 'err');
     }
   };
-  inp.click();
+  document.body.appendChild(inp);
+  return inp;
+}
+function rnUpload() {
+  rnEnsureInput().click();
 }
 async function renewals() {
   title('Renewals', 'Students due to renew, with their status and remarks');
@@ -259,7 +269,10 @@ async function renewals() {
   } catch (err) {
     view.innerHTML = `<div class="card"><h3>No renewal data loaded</h3><p class="note">${esc(err.message)}</p>${rnIsOwner() ? '<button class="btn btn-primary" id="rnUp" type="button">⬆ Upload renewal data (.json)</button>' : ''}</div>`;
     const up = $('#rnUp');
-    if (up) up.onclick = rnUpload;
+    if (up) {
+      rnEnsureInput();
+      up.onclick = rnUpload;
+    }
     return;
   }
   const rows = j.rows;
@@ -334,6 +347,7 @@ async function renewals() {
   bind('rnBand', 'band');
   bind('rnRem', 'rem');
   bind('rnSort', 'sort');
+  rnEnsureInput();
   if ($('#rnUp')) $('#rnUp').onclick = rnUpload;
   $('#rnClear').onclick = () => {
     rnState = { q: '', tm: '', office: '', status: '', at: '', school: '', grade: '', band: '', rem: false, sort: 'att', limit: 150 };
