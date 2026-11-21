@@ -13,6 +13,7 @@ const { tmEmail, teamEmail, SLOT } = require('./lib/emails');
 const G = require('./lib/google');
 const auth = require('./lib/auth');
 const persist = require('./lib/persist');
+const Remarks = require('./lib/ptmRemarks');
 const Parents = require('./lib/parents');
 const Access = require('./lib/access');
 const { DATA, CLOUD } = require('./lib/paths');
@@ -495,6 +496,7 @@ app.get('/api/ptm', async (req, res) => {
     return res.status(502).json({ error: `Could not load PTMs from Lighthouse: ${e.message}` });
   }
   if (req.role === 'viewer') return res.status(403).json({ error: 'Not allowed.' });
+  const remarks = Remarks.load();
   const tms = team().map((m) => ({ name: m.name, lh: m.lighthouseName || m.name, old: m.oldName || '' }));
   const tmOf = (host) => {
     const t = tms.find((x) => [x.name, x.lh, x.old].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
@@ -507,8 +509,25 @@ app.get('/api/ptm', async (req, res) => {
     monthStart,
     fetchedAt: new Date(data.at).toISOString(),
     team: tms.map((t) => t.name).filter((n) => req.role !== 'tm' || n === req.myTm),
-    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host) })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
+    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host), remark: remarks[m.id] || null })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
   });
+});
+// A TM writes remarks on their own PTMs after the meeting; the owner can write on any.
+app.post('/api/ptm-remark', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const id = String((req.body && req.body.id) || '');
+  const text = String((req.body && req.body.text) || '');
+  if (!id) return res.status(400).json({ error: 'Missing meeting.' });
+  const pools = [ptmCache, ...ptmRanges.values()];
+  let m = null;
+  for (const p of pools) if (!m && p && Array.isArray(p.data)) m = p.data.find((x) => String(x.id) === id);
+  if (!m) return res.status(404).json({ error: 'Meeting not found. Reload the page and try again.' });
+  const tms = team().map((x) => ({ name: x.name, lh: x.lighthouseName || x.name, old: x.oldName || '' }));
+  const hit = tms.find((x) => [x.name, x.lh, x.old].some((n) => n && n.toLowerCase() === String(m.host).toLowerCase()));
+  const tmName = hit ? hit.name : m.host;
+  if (req.role === 'tm' && tmName !== req.myTm) return res.status(403).json({ error: 'You can only write remarks on your own PTMs.' });
+  const who = (req.user && (req.user.name || req.user.email)) || tmName;
+  res.json({ remark: Remarks.set(id, text, who, { student: m.student, tm: tmName }) });
 });
 
 // One student, for the PTM detail panel: hub profile, open tasks and all their PTMs.

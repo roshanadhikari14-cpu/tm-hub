@@ -526,3 +526,11 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 @media (prefers-reduced-motion: reduce) {
   .bg-orbs span { animation: none !important; }
 }
+
+.rm-cell { min-width: 230px; max-width: 300px; font-size: 12.5px; line-height: 1.45; vertical-align: top; cursor: default; }
+.rm-text { white-space: pre-wrap; margin-bottom: 2px; }
+.rm-by { color: var(--ink-3); display: block; margin-bottom: 4px; }
+.rm-btn { border: 1px dashed var(--line, #cfd8e3); background: transparent; border-radius: 8px; padding: 4px 9px; font-size: 12px; cursor: pointer; color: var(--ink-2, #44546a); }
+.rm-btn:hover { background: var(--mint, #e8f8ef); }
+.rm-area { width: 100%; min-width: 220px; font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line, #cfd8e3); resize: vertical; }
+.rm-act { display: flex; gap: 6px; margin-top: 6px; } .rm-act .btn { padding: 4px 10px; font-size: 12px; }

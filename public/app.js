@@ -1529,11 +1529,29 @@ const PTM_STATUS = {
   unmarked: ['Not marked', 'amber'],
 };
 function ptmState(m) {
+  if (m._st) return m._st;
   if (m.status !== 'scheduled') return PTM_STATUS[m.status] ? m.status : 'unmarked';
   const now = Date.now();
   if (new Date(m.start) > now) return 'upcoming';
   if (new Date(m.end) > now) return 'live';
   return 'unmarked';
+}
+// A student counts once a day, however many PTMs they had; the parent minutes are added together.
+const PTM_RANK = ['completed', 'live', 'upcoming', 'no_show', 'unmarked', 'cancelled'];
+function ptmUniq(list) {
+  const by = new Map();
+  for (const m of list) {
+    const k = m.date + '|' + String(m.studentId || m.student || '').toLowerCase().trim();
+    const g = by.get(k);
+    if (!g) by.set(k, { first: m, all: [m] });
+    else g.all.push(m);
+  }
+  return [...by.values()].map(({ first, all }) => {
+    if (all.length === 1) return first;
+    const st = all.map(ptmState).sort((a, b) => PTM_RANK.indexOf(a) - PTM_RANK.indexOf(b))[0];
+    const mins = all.some((x) => x.parentMinutes != null) ? all.reduce((s, x) => s + (x.parentMinutes || 0), 0) : null;
+    return { ...first, _st: st, parentMinutes: mins };
+  });
 }
 const ptmTag = (m) => {
   const [label, cls] = PTM_STATUS[ptmState(m)];
@@ -1544,13 +1562,23 @@ const ptmDay = (m) => new Date(m.start).toLocaleDateString('en-GB', { timeZone: 
 const ptmParent = (m) => (m.parentMinutes == null ? (m.parentJoined ? 'Joined' : '—') : m.parentMinutes ? `${m.parentMinutes} min` : 'Did not join');
 const ptmStudent = (m) => lhLink(m.studentId ? `${CRM}/students/view/${m.studentId}` : '', esc(m.student));
 const ptmView = { tm: '', status: '', preset: '', from: '', to: '' };
+// Remarks the TM writes after the PTM (saved on the hub, shown to the owner and the TM)
+const rmCan = (m) => !S.status || !S.status.role || S.status.role === 'owner' || (S.status.role === 'tm' && S.status.myTm === m.tm);
+function remarkHtml(m) {
+  const r = m.remark;
+  const can = rmCan(m) && ptmState(m) !== 'upcoming';
+  const txt = r ? `<div class="rm-text">${esc(r.text)}</div><small class="rm-by">${esc(r.by || '')}${r.at ? ' · ' + esc(new Date(r.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })) : ''}</small>` : '';
+  const btn = can ? `<button class="rm-btn" type="button">${r ? '✎ Edit' : '＋ Add remark'}</button>` : r ? '' : '<small style="color:var(--ink-3)">—</small>';
+  return txt + btn;
+}
+const remarkCell = (m) => `<td class="rm-cell" data-rm="${esc(m.id)}">${remarkHtml(m)}</td>`;
 function ptmRows(list, withDay) {
   if (!list.length) return '<div class="empty">No PTMs here.</div>';
-  return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th></tr></thead><tbody>${list
+  return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th><th>Remarks</th></tr></thead><tbody>${list
     .map(
       (m) => `<tr class="ptm-row" data-ptm="${esc(m.id)}" title="Click for student and meeting details"><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
         <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
-        <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td></tr>`
+        <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td>${remarkCell(m)}</tr>`
     )
     .join('')}</tbody></table></div>`;
 }
@@ -1572,12 +1600,13 @@ async function ptm() {
   }
   title('PTM', `Parent-teacher meetings · from Lighthouse at ${fmtTime(j.fetchedAt)}`);
   const all = j.meetings;
+  window.__ptmMeetings = all;
   const today = all.filter((m) => m.date === j.today);
   const tomorrowIso = isoShift(j.today, 1);
   const tomorrow = all.filter((m) => m.date === tomorrowIso);
   const weekStart = isoShift(j.today, -((new Date(`${j.today}T00:00:00Z`).getUTCDay() + 6) % 7));
-  const count = (list, st) => list.filter((m) => ptmState(m) === st).length;
-  const booked = (list) => list.filter((m) => m.status !== 'cancelled').length;
+  const count = (list, st) => ptmUniq(list).filter((m) => ptmState(m) === st).length;
+  const booked = (list) => ptmUniq(list).filter((m) => ptmState(m) !== 'cancelled').length;
   const since = (d) => all.filter((m) => m.date >= d);
   const tiles = [
     ['📅', booked(today), 'PTMs today', `${count(today, 'upcoming') + count(today, 'live')} still to come`],
@@ -1593,7 +1622,7 @@ async function ptm() {
   // One row per TM.
   const stat = (list) => {
     const o = { booked: 0, done: 0, noshow: 0, cancelled: 0, unmarked: 0, minutes: 0 };
-    for (const m of list) {
+    for (const m of ptmUniq(list)) {
       const s = ptmState(m);
       if (s === 'cancelled') o.cancelled++;
       else o.booked++;
@@ -1655,8 +1684,9 @@ async function ptm() {
     // Counts per TM for the chosen dates, shown on the TM buttons.
     $$('#ptmTabs button').forEach((b) => {
       const mine = inRange.filter((m) => !b.dataset.tm || m.tm === b.dataset.tm);
-      const n = mine.filter((m) => m.status !== 'cancelled').length;
-      b.innerHTML = `${esc(b.dataset.tm ? b.dataset.tm.split(' ')[0] : 'All TMs')}${n ? `<span class="count">${mine.filter((m) => ptmState(m) === 'completed').length}/${n}</span>` : ''}`;
+      const um = ptmUniq(mine);
+      const n = um.filter((m) => ptmState(m) !== 'cancelled').length;
+      b.innerHTML = `${esc(b.dataset.tm ? b.dataset.tm.split(' ')[0] : 'All TMs')}${n ? `<span class="count">${um.filter((m) => ptmState(m) === 'completed').length}/${n}</span>` : ''}`;
       b.classList.toggle('on', b.dataset.tm === ptmView.tm);
     });
     const byTm = inRange.filter((m) => !ptmView.tm || m.tm === ptmView.tm);
@@ -1858,7 +1888,39 @@ async function openPtmPanel(meetingId) {
   }</div>`;
   $('.drawer-body', dr).innerHTML = meeting + fam + profile + tasks + hist;
 }
-document.addEventListener('click', (e) => {
+const rmStore = new Map();
+function rmFind(id) {
+  const list = window.__ptmMeetings;
+  return Array.isArray(list) ? list.find((x) => String(x.id) === String(id)) || null : null;
+}
+document.addEventListener('click', async (e) => {
+  const cell = e.target.closest && e.target.closest('.rm-cell');
+  if (cell) {
+    const id = cell.dataset.rm;
+    if (e.target.closest('.rm-btn')) {
+      const cur = (cell.querySelector('.rm-text') || {}).textContent || '';
+      rmStore.set(id, cell.innerHTML);
+      cell.innerHTML = `<textarea class="rm-area" rows="3" maxlength="2000" placeholder="How did the PTM go? Parent's concerns, what was agreed, follow-ups…">${esc(cur)}</textarea><div class="rm-act"><button class="btn btn-primary rm-save" type="button">Save</button><button class="btn btn-ghost rm-cancel" type="button">Cancel</button></div>`;
+      cell.querySelector('textarea').focus();
+    } else if (e.target.closest('.rm-cancel')) cell.innerHTML = rmStore.get(id) || '';
+    else if (e.target.closest('.rm-save')) {
+      const text = cell.querySelector('textarea').value;
+      const b = e.target.closest('.rm-save');
+      b.disabled = true;
+      try {
+        const out = await api('/api/ptm-remark', { body: { id, text } });
+        const m = rmFind(id);
+        if (m) m.remark = out.remark;
+        else apiCache.delete('/api/ptm');
+        document.querySelectorAll('.rm-cell').forEach((c) => { if (c.dataset.rm === id) c.innerHTML = remarkHtml({ ...(m || {}), id, remark: out.remark, tm: (m && m.tm) || (S.status && S.status.myTm) || '', status: (m && m.status) || 'completed' }); });
+        toast('Remark saved', 'ok');
+      } catch (er) {
+        b.disabled = false;
+        toast(er.message, 'err');
+      }
+    }
+    return;
+  }
   const row = e.target.closest && e.target.closest('.ptm-row');
   if (!row || e.target.closest('a')) return;
   openPtmPanel(row.dataset.ptm);
@@ -1880,8 +1942,8 @@ async function fillPtmCards() {
       el.textContent = '—';
       continue;
     }
-    const mine = ptmToday.list.filter((m) => m.tm === el.dataset.ptmcard && m.status !== 'cancelled');
-    const done = mine.filter((m) => m.status === 'completed').length;
+    const mine = ptmUniq(ptmToday.list.filter((m) => m.tm === el.dataset.ptmcard)).filter((m) => ptmState(m) !== 'cancelled');
+    const done = mine.filter((m) => ptmState(m) === 'completed').length;
     el.textContent = mine.length;
     const sub = el.parentElement.querySelector('[data-ptmsub]');
     if (sub) sub.textContent = mine.length ? `PTMs today · ${done} done` : 'PTMs today';
