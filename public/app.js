@@ -1548,9 +1548,12 @@ function ptmUniq(list) {
   }
   return [...by.values()].map(({ first, all }) => {
     if (all.length === 1) return first;
-    const st = all.map(ptmState).sort((a, b) => PTM_RANK.indexOf(a) - PTM_RANK.indexOf(b))[0];
+    const rank = (m) => PTM_RANK.indexOf(ptmState(m));
+    const rep = all.slice().sort((a, b) => rank(a) - rank(b) || Number(!!b.remark) - Number(!!a.remark))[0];
     const mins = all.some((x) => x.parentMinutes != null) ? all.reduce((s, x) => s + (x.parentMinutes || 0), 0) : null;
-    return { ...first, _st: st, parentMinutes: mins };
+    const withs = [...new Set(all.flatMap((x) => x.with || []))];
+    const remark = rep.remark || (all.find((x) => x.remark) || {}).remark || null;
+    return { ...rep, _st: ptmState(rep), parentMinutes: mins, with: withs, remark, recording: all.some((x) => x.recording), _n: all.length };
   });
 }
 const ptmTag = (m) => {
@@ -1574,10 +1577,11 @@ function remarkHtml(m) {
 const remarkCell = (m) => `<td class="rm-cell" data-rm="${esc(m.id)}">${remarkHtml(m)}</td>`;
 function ptmRows(list, withDay) {
   if (!list.length) return '<div class="empty">No PTMs here.</div>';
+  list = ptmUniq(list);
   return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th><th>Remarks</th></tr></thead><tbody>${list
     .map(
       (m) => `<tr class="ptm-row" data-ptm="${esc(m.id)}" title="Click for student and meeting details"><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
-        <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
+        <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}${m._n > 1 ? `<br><small style="color:var(--ink-3)" title="Several PTMs with this student on the same day are shown as one, with the parent minutes added">${m._n} meetings, 1 student</small>` : ''}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
         <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td>${remarkCell(m)}</tr>`
     )
     .join('')}</tbody></table></div>`;
