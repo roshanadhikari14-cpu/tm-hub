@@ -6,3 +6,4 @@ data/
 .vercel/
 .claude/
 seed/
+tools/vantage/.key

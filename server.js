@@ -1,6 +1,7 @@
 // TM Hub: live task board, TM profiles and the three daily emails
 // (11 AM targets, 5 PM progress, 8 PM closure), Monday to Saturday.
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs');
 const ENV_FILE = path.join(__dirname, '..', '.env');
 require('dotenv').config({ path: ENV_FILE });
@@ -712,6 +713,41 @@ app.get('/api/renewals', async (req, res) => {
   let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm), ptm: ptm ? (ptm.map.get(String(r.id)) || null) : undefined }));
   if (req.role === 'tm') rows = rows.filter((r) => r.tm === req.myTm);
   res.json({ at: d.at, source: d.source, due: (rows[0] || {}).due || '', team: [...new Set(rows.map((r) => r.tm))].sort(), ptmFrom: ptm && ptm.from, ptmTo: ptm && ptm.to, ptmError, rows });
+});
+// The daily 11 AM refresh: a signed-in browser reads Vantage and pushes the rows here with a private key
+// (Vantage only opens for a signed-in person, so the server cannot fetch it itself).
+const RENEWAL_KEY_FILE = path.join(DATA, 'renewal-key.json');
+const keyHash = (k) => crypto.createHash('sha256').update(String(k)).digest('hex');
+app.post('/api/renewals/key', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can make the refresh key.' });
+  const key = crypto.randomBytes(32).toString('hex');
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(RENEWAL_KEY_FILE, JSON.stringify({ hash: keyHash(key), at: new Date().toISOString() }));
+  res.json({ key });
+});
+// Under /api/cron so it needs no login; the key is the login.
+app.post('/api/cron/renewals-push', express.text({ type: '*/*', limit: '8mb' }), (req, res) => {
+  let saved;
+  try {
+    saved = JSON.parse(fs.readFileSync(RENEWAL_KEY_FILE, 'utf8'));
+  } catch {
+    return res.status(403).json({ error: 'No refresh key has been made yet.' });
+  }
+  let b;
+  try {
+    b = JSON.parse(typeof req.body === 'string' ? req.body : '{}');
+  } catch {
+    return res.status(400).json({ error: 'Send JSON.' });
+  }
+  if (!b.key || keyHash(b.key) !== saved.hash) return res.status(403).json({ error: 'Wrong key.' });
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  if (!rows.length || !rows.every((r) => r && r.id && r.name)) return res.status(400).json({ error: 'No usable rows.' });
+  const prev = loadRenewals();
+  const before = prev && prev.rows ? prev.rows.length : 0;
+  if (before && rows.length < before * 0.7) return res.status(409).json({ error: `Only ${rows.length} rows against ${before} before. Kept the old list.` });
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(RENEWALS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Vantage · Renewal Discussion', rows }));
+  res.json({ ok: true, count: rows.length });
 });
 // Owner: load a newer export of the same list (rows in the same shape).
 app.post('/api/renewals/import', (req, res) => {
