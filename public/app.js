@@ -1960,7 +1960,7 @@ async function ptm() {
   ]
     .map(
       ([ico, v, lbl, meta], i) =>
-        `<div class="card kpi rise" style="--i:${i};cursor:default"><div class="top"><div class="ico">${ico}</div></div><div class="val"><span data-count="${v}">0</span></div><div class="lbl">${esc(lbl)}</div><div class="meta">${esc(meta)}</div></div>`
+        `<div class="card kpi rise ptm-kpi" data-ptmq="${i}" tabindex="0" role="button" title="Show these PTMs below" style="--i:${i};cursor:pointer"><div class="top"><div class="ico">${ico}</div></div><div class="val"><span data-count="${v}">0</span></div><div class="lbl">${esc(lbl)}</div><div class="meta">${esc(meta)}</div></div>`
     )
     .join('');
   // One row per TM.
@@ -2100,6 +2100,26 @@ async function ptm() {
   $('#ptmFrom').onchange = pickDates;
   $('#ptmTo').onchange = pickDates;
   $('#ptmStatus').onchange = (e) => ((ptmView.status = e.target.value), paintHistory());
+  // the four tiles at the top open the matching list below
+  const TILE = [['today', ''], ['today', 'completed'], ['week', 'completed'], ['month', 'completed']];
+  const openTile = (k) => {
+    const [preset, status] = TILE[k];
+    const p = presets[preset];
+    Object.assign(ptmView, { preset, from: p[1], to: p[2], tm: '', status });
+    $('#ptmStatus').value = status;
+    paintHistory();
+    const to = $('#ptmByDate');
+    if (to) window.scrollTo({ top: to.getBoundingClientRect().top + window.scrollY - 90, behavior: 'smooth' });
+  };
+  view.querySelectorAll('.ptm-kpi').forEach((c) => {
+    c.onclick = () => openTile(Number(c.dataset.ptmq));
+    c.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openTile(Number(c.dataset.ptmq));
+      }
+    };
+  });
   view.querySelectorAll('.ptm-tm').forEach(
     (tr) =>
       (tr.onclick = () => {
