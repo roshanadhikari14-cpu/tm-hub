@@ -70,6 +70,7 @@ function confirmBox(title, text, okLabel = 'Confirm') {
   });
 }
 const photo = (r) => `photos/${encodeURIComponent(r.photo || '')}`;
+const TALK_LABEL = { clear: 'Target met', ok: 'On track', watch: 'Concerning', critical: 'Needs attention' };
 const pill = (st, label) => `<span class="pill ${st}">${esc(label || STATUS_LABEL[st])}</span>`;
 function ring(score, cls = '') {
   const r = 42;
@@ -1060,6 +1061,19 @@ async function tm([name, focus]) {
 const rnPct = (done, total) => (total ? `${done}/${total} | ${((100 * done) / total).toFixed(2)}%` : `${done}/${total} | —`);
 // "58/306 | 18.95%" for the NC-15 share of students (red when above 5%)
 const rnPct2 = (n, d) => { const p = (100 * n) / d; return `<span style="color:${p > 5 ? 'var(--red)' : 'var(--green)'}">${n}/${d} | ${p.toFixed(2)}%</span>`; };
+// What the talk-time status means
+function talkLegend(b) {
+  const r0 = (b.rows || [])[0];
+  const s0 = r0 && r0.tasks.talk;
+  const target = (s0 && s0.target) || 90;
+  const exp = s0 && s0.expected != null ? s0.expected : null;
+  const dot = (c, txt) => `<span class="pill ${c}" style="margin-right:6px">${txt}</span>`;
+  return `<div style="margin-top:8px;line-height:1.9">Target: <b>${target} min of talk time (calls plus PTMs) by 8 PM</b>, spread evenly over the call day from 11 AM${exp != null ? `, so about <b>${exp} min</b> is expected by now` : ''}.<br>
+    ${dot('clear', 'Target met')} ${target} min or more.
+    ${dot('ok', 'On track')} At or above the pace expected for this time of day.
+    ${dot('watch', 'Concerning')} Behind pace, but within 30% of it.
+    ${dot('critical', 'Needs attention')} More than 30% behind pace.</div>`;
+}
 // ---------- Task board ----------
 async function tasks([key]) {
   const b = await load();
@@ -1088,13 +1102,13 @@ async function tasks([key]) {
           ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.callMinutes ?? 0}m</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${s.ptmMinutes ?? 0}m</small>` : '0'}</td><td class="num">${s.yesterday}m${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${s.yesterdayPtmMinutes}m</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
           : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}${s.morning ? ` <span class="open-pct">| ${((100 * Math.max(0, s.morning - s.done)) / s.morning).toFixed(2)}%</span>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
       return `<tr class="${st === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
-        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${st === 'critical' ? 'red' : st === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${pill(st)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc((t.kind === 'talk' && s.liveHint) || s.hints[0] || '')}</td></tr>`;
+        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${st === 'critical' ? 'red' : st === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${t.kind === 'talk' ? `<span title="${s.expected != null ? esc('Expected by now: about ' + s.expected + ' min of ' + s.target + '. Done: ' + s.done + ' min.') : ''}">${pill(st, TALK_LABEL[st])}</span>` : pill(st)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc((t.kind === 'talk' && s.liveHint) || s.hints[0] || '')}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
   const all = b.rows.flatMap((r) => r.tasks[t.key].items.map((it) => ({ ...it, tm: r.first }))).sort((a, c) => c.flag - a.flag || a.sort - c.sort);
   view.innerHTML = `
     <div class="tabs rise" id="ttabs">${S.tasks.map((x) => `<button class="${x.key === t.key ? 'on' : ''}" data-key="${x.key}">${x.icon} ${esc(x.short)}${count(x)}</button>`).join('')}</div>
-    <div class="card rise" style="--i:1;margin-top:18px"><h3>${t.icon} ${esc(t.label)} · by TM <a class="lh" style="font-size:12.5px;font-weight:500;margin-left:8px" href="${TASK_PAGE[t.key] || CRM + '/tm-performance'}" target="_blank" rel="noopener">Open in Lighthouse<span class="ext">↗</span></a></h3><div class="sub" style="margin-bottom:12px">Rows in red need attention. Click a row to open the TM.</div>${summary}</div>
+    <div class="card rise" style="--i:1;margin-top:18px"><h3>${t.icon} ${esc(t.label)} · by TM <a class="lh" style="font-size:12.5px;font-weight:500;margin-left:8px" href="${TASK_PAGE[t.key] || CRM + '/tm-performance'}" target="_blank" rel="noopener">Open in Lighthouse<span class="ext">↗</span></a></h3><div class="sub" style="margin-bottom:12px">Rows in red need attention. Click a row to open the TM.${t.kind === 'talk' ? talkLegend(b) : ''}</div>${summary}</div>
     ${
       t.kind === 'talk'
         ? ''
