@@ -2301,10 +2301,28 @@ function reportMonths() {
 function reportCard() {
   const m = reportMonths();
   const st = S.status || {};
-  return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">Type a student ID and get a 3-page plan for the one-to-one PTM, built from the student’s Lighthouse reports (with photos of their own work). It downloads as a PDF. Free, takes about 30 seconds.</div></div>
-    <div class="rc-r"><input id="rpId" inputmode="numeric" placeholder="Student ID, e.g. 33682"><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><select id="rpWin" title="How far back to read"><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option><option value="all">Since joining</option></select>
+  return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">Type a student name or ID and get a 3-page plan for the one-to-one PTM, built from the student’s Lighthouse reports (with photos of their own work). It downloads as a PDF. Free, takes about 30 seconds.</div></div>
+    <div class="rc-r"><input id="rpId" list="rpList" autocomplete="off" placeholder="Student name or ID, e.g. 33682"><datalist id="rpList"></datalist><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><select id="rpWin" title="How far back to read"><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option><option value="all">Since joining</option></select>
       <button class="btn btn-primary" id="rpGo">Create report</button></div></div>`;
 }
+// Student names for the report box (the person's own students; the owner sees all)
+async function rpLoad() {
+  if (window.__rpStudents) return;
+  try {
+    const j = await cachedApi('/api/students-all', 600000);
+    window.__rpStudents = (j.rows || []).map((r) => ({ id: r.id, name: r.name, school: r.school }));
+  } catch {
+    window.__rpStudents = [];
+  }
+  const dl = document.getElementById('rpList');
+  if (dl) dl.innerHTML = window.__rpStudents.map((s) => '<option value="' + esc(s.name + ' · ' + s.id) + '">' + esc(s.school || '') + '</option>').join('');
+}
+document.addEventListener('focusin', async (e) => {
+  if (e.target.id !== 'rpId') return;
+  await rpLoad();
+  const dl = document.getElementById('rpList');
+  if (dl && !dl.children.length) dl.innerHTML = (window.__rpStudents || []).map((s) => '<option value="' + esc(s.name + ' · ' + s.id) + '">' + esc(s.school || '') + '</option>').join('');
+});
 const RSTEPS = ['Gathering Lighthouse data', 'Reading the reports', 'Writing the plan', 'Making the PDF'];
 let reportBusy = false;
 async function createPtmReport(studentId, month, win) {
@@ -2399,7 +2417,7 @@ async function createPtmReport(studentId, month, win) {
     reportBusy = false;
   }
 }
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const tile = e.target.closest && e.target.closest('.mini-stats .go');
   if (tile) {
     e.preventDefault();
@@ -2411,8 +2429,22 @@ document.addEventListener('click', (e) => {
   if (!go) return;
   e.preventDefault();
   if (go.id === 'rpGo') {
-    const id = ($('#rpId').value || '').trim();
-    if (!/^\d+$/.test(id)) return toast('Enter the student ID (numbers only).', 'err');
+    const raw = ($('#rpId').value || '').trim();
+    let id = /^\d+$/.test(raw) ? raw : '';
+    if (!id) {
+      // a name (or "Name · 12345" picked from the list)
+      const tail = raw.match(/·\s*(\d+)\s*$/);
+      if (tail) id = tail[1];
+      else {
+        await rpLoad();
+        const q = raw.toLowerCase();
+        const hits = (window.__rpStudents || []).filter((s) => s.name.toLowerCase() === q);
+        const part = hits.length ? hits : (window.__rpStudents || []).filter((s) => q && s.name.toLowerCase().includes(q));
+        if (part.length === 1) id = String(part[0].id);
+        else if (part.length > 1) return toast(part.length + ' students match "' + raw + '". Pick one from the list (it shows the ID).', 'err');
+      }
+    }
+    if (!id) return toast('No student found. Type a name from the list or the student ID.', 'err');
     createPtmReport(id, $('#rpMonth').value, $('#rpWin').value);
   } else {
     closePtmPanel();
