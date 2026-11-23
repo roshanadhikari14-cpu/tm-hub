@@ -1063,13 +1063,14 @@ async function tasks([key]) {
   }<th>Progress</th>${t.key === 'nc15' ? '<th class="num">NC-15 %</th>' : ''}<th>Status</th><th>Idea / hint</th></tr></thead><tbody>${totalRow()}${b.rows
     .map((r) => {
       const s = r.tasks[t.key];
+      const st = t.kind === 'talk' && s.liveStatus ? s.liveStatus : s.status;
       const p = t.kind === 'talk' ? (s.target ? Math.round((100 * s.done) / s.target) : 100) : s.morning ? Math.round((100 * s.done) / s.morning) : 100;
       const nums =
         t.kind === 'talk'
           ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.callMinutes ?? 0}m</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${s.ptmMinutes ?? 0}m</small>` : '0'}</td><td class="num">${s.yesterday}m${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${s.yesterdayPtmMinutes}m</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
           : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}${s.morning ? ` <span class="open-pct">| ${((100 * Math.max(0, s.morning - s.done)) / s.morning).toFixed(2)}%</span>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
-      return `<tr class="${s.status === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
-        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${s.status === 'critical' ? 'red' : s.status === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${pill(s.status)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc(s.hints[0] || '')}</td></tr>`;
+      return `<tr class="${st === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
+        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${st === 'critical' ? 'red' : st === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${pill(st)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc((t.kind === 'talk' && s.liveHint) || s.hints[0] || '')}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
   const all = b.rows.flatMap((r) => r.tasks[t.key].items.map((it) => ({ ...it, tm: r.first }))).sort((a, c) => c.flag - a.flag || a.sort - c.sort);
@@ -1428,6 +1429,8 @@ setInterval(async () => {
 // Reads a TM's name and today's numbers aloud when the pointer rests on them. If the TM has
 // recorded a greeting (public/voices/<first name>.mp3), that plays first.
 const voiceOn = () => {
+  // hover read-outs are for the admin only; TMs and viewers never hear them
+  if (!S.status || S.status.role !== 'owner') return false;
   try {
     return localStorage.getItem('tmhub.voice') !== 'off';
   } catch {
