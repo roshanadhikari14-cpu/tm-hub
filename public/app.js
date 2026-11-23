@@ -692,6 +692,23 @@ function heatmap(b) {
     )
     .join('')}</tbody></table></div>`;
 }
+// "NC15 %" per TM for this week, as in Lighthouse's TM Performance report: parents not connected for 15+ days / the TM's students
+function ncCard(b) {
+  const rows = (b.rows || []).filter((r) => r.tasks && r.tasks.nc15 && r.tasks.nc15.share);
+  if (!rows.length) return '';
+  const day = (S.status && S.status.now && S.status.now.date) || new Date().toISOString().slice(0, 10);
+  const d = new Date(day + 'T12:00:00Z');
+  const mon = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000);
+  const sun = new Date(mon.getTime() + 6 * 86400000);
+  const f = (x) => x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const c = rows.reduce((a, r) => a + r.tasks.nc15.share.count, 0);
+  const n = rows.reduce((a, r) => a + r.tasks.nc15.share.den, 0);
+  return `<div class="card rise" style="--i:3;margin-top:18px"><div class="toolbar"><div><h3>NC-15 %</h3><div class="sub">Parents not connected for 15+ days, out of each TM’s students · ${f(mon)} to ${f(sun)}</div></div><span style="flex:1"></span><a class="btn btn-ghost" href="#/tasks/nc15">Open NC-15 list</a></div>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Tutor Manager</th><th class="num">NC-15 %</th></tr></thead><tbody>
+      <tr style="background:var(--soft,#f4f8fc)"><td><b>All TMs (${rows.length})</b></td><td class="num"><b>${rnPct2(c, n)}</b></td></tr>
+      ${rows.map((r) => `<tr data-go="#/tm/${encodeURIComponent(r.name)}/nc15" style="cursor:pointer"><td>${esc(r.name)}</td><td class="num">${rnPct2(r.tasks.nc15.share.count, r.tasks.nc15.share.den)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
 async function dashboard() {
   const b = await load();
   const st = S.status;
@@ -748,6 +765,7 @@ async function dashboard() {
             : '<div class="empty">🎉 Nothing critical right now</div>'
         }</div></div>
     </div>
+    ${ncCard(b)}
     <div class="section-title"><h2>Team</h2><span>Performance score out of 100</span></div>
     <div class="grid g-team">${[...b.rows].sort((a, c) => c.perf.score - a.perf.score).map((r, i) => tmCard(r, i + 11, i === 0)).join('')}</div>`;
 }
