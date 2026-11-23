@@ -2468,8 +2468,22 @@ async function viewPdf(url, title) {
   $('#pdfClose').onclick = close;
   try {
     await loadPdfJs();
-    const buf = await (await fetch(url)).arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    let pdf = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4 && !pdf; attempt++) {
+      try {
+        if (attempt) await new Promise((r) => setTimeout(r, 1200 * attempt));
+        const res = await fetch(url + (url.startsWith('blob:') ? '' : (url.includes('?') ? '&' : '?') + 'r=' + Date.now() + attempt), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const buf = await res.arrayBuffer();
+        const tail = new TextDecoder('latin1').decode(new Uint8Array(buf).slice(-64));
+        if (!tail.includes('%%EOF')) throw new Error('the file is still being saved');
+        pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!pdf) throw lastErr || new Error('could not open the file');
     const box = $('#pdfPages');
     box.innerHTML = '';
     for (let i = 1; i <= pdf.numPages; i++) {
