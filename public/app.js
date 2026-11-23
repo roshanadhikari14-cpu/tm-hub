@@ -1040,6 +1040,8 @@ async function tm([name, focus]) {
 
 // "20/57 | 35.09%": closed out of the students on the list at 10 AM
 const rnPct = (done, total) => (total ? `${done}/${total} | ${((100 * done) / total).toFixed(2)}%` : `${done}/${total} | —`);
+// "58/306 | 18.95%" for the NC-15 share of students (red when above 5%)
+const rnPct2 = (n, d) => { const p = (100 * n) / d; return `<span style="color:${p > 5 ? 'var(--red)' : 'var(--green)'}">${n}/${d} | ${p.toFixed(2)}%</span>`; };
 // ---------- Task board ----------
 async function tasks([key]) {
   const b = await load();
@@ -1052,13 +1054,13 @@ async function tasks([key]) {
     const sum = (k) => b.rows.reduce((a, r) => a + (r.tasks[t.key][k] || 0), 0);
     const [morning, done, pending, flagged] = [sum('morning'), sum('done'), sum('pending'), sum('flagged')];
     const p = morning ? Math.round((100 * done) / morning) : 100;
-    return `<tr style="background:var(--soft,#f4f8fc)"><td><b>All TMs (${b.rows.length})</b></td><td class="num"><b>${morning}</b></td><td class="num"><b>${done}</b></td><td class="num"><b>${pending}</b>${morning ? ` <span class="open-pct"><b>| ${((100 * Math.max(0, morning - done)) / morning).toFixed(2)}%</b></span>` : ''}</td><td class="num">${flagged ? `<span class="tag red">${flagged}</span>` : '0'}</td><td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:112px;text-align:right;white-space:nowrap">${rnPct(done, morning)}</b></div></td><td></td><td></td></tr>`;
+    return `<tr style="background:var(--soft,#f4f8fc)"><td><b>All TMs (${b.rows.length})</b></td><td class="num"><b>${morning}</b></td><td class="num"><b>${done}</b></td><td class="num"><b>${pending}</b>${morning ? ` <span class="open-pct"><b>| ${((100 * Math.max(0, morning - done)) / morning).toFixed(2)}%</b></span>` : ''}</td><td class="num">${flagged ? `<span class="tag red">${flagged}</span>` : '0'}</td><td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:112px;text-align:right;white-space:nowrap">${rnPct(done, morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap"><b>${(() => { const sh = b.rows.map((r) => r.tasks.nc15.share).filter(Boolean); const c = sh.reduce((x, y) => x + y.count, 0); const dn = sh.reduce((x, y) => x + y.den, 0); return dn ? rnPct2(c, dn) : '—'; })()}</b></td>` : ''}<td></td><td></td></tr>`;
   };
   const summary = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th>${
     t.kind === 'talk'
       ? '<th class="num">Today</th><th class="num">On calls</th><th class="num">PTM today</th><th class="num">Last day talk time</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
       : '<th class="num">At 10 AM</th><th class="num">Closed / booked</th><th class="num">Still open</th><th class="num">Flagged</th>'
-  }<th>Progress</th><th>Status</th><th>Idea / hint</th></tr></thead><tbody>${totalRow()}${b.rows
+  }<th>Progress</th>${t.key === 'nc15' ? '<th class="num">NC-15 %</th>' : ''}<th>Status</th><th>Idea / hint</th></tr></thead><tbody>${totalRow()}${b.rows
     .map((r) => {
       const s = r.tasks[t.key];
       const p = t.kind === 'talk' ? (s.target ? Math.round((100 * s.done) / s.target) : 100) : s.morning ? Math.round((100 * s.done) / s.morning) : 100;
@@ -1067,7 +1069,7 @@ async function tasks([key]) {
           ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.callMinutes ?? 0}m</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${s.ptmMinutes ?? 0}m</small>` : '0'}</td><td class="num">${s.yesterday}m${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${s.yesterdayPtmMinutes}m</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
           : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}${s.morning ? ` <span class="open-pct">| ${((100 * Math.max(0, s.morning - s.done)) / s.morning).toFixed(2)}%</span>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
       return `<tr class="${s.status === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
-        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${s.status === 'critical' ? 'red' : s.status === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td><td>${pill(s.status)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc(s.hints[0] || '')}</td></tr>`;
+        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${s.status === 'critical' ? 'red' : s.status === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${pill(s.status)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc(s.hints[0] || '')}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
   const all = b.rows.flatMap((r) => r.tasks[t.key].items.map((it) => ({ ...it, tm: r.first }))).sort((a, c) => c.flag - a.flag || a.sort - c.sort);
