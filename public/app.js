@@ -1091,7 +1091,7 @@ async function tasks([key]) {
   const summary = `<div class="table-wrap"><table class="tbl"><thead><tr><th>TM</th>${
     t.kind === 'talk'
       ? '<th class="num">Today</th><th class="num">On calls</th><th class="num">PTM today</th><th class="num">Last day talk time</th><th class="num">Parents connected</th><th class="num">Connected / dialled</th>'
-      : '<th class="num">At 10 AM</th><th class="num">Closed today</th><th class="num">Still open</th><th class="num">Flagged</th>'
+      : '<th class="num">At 10 AM</th><th class="num">' + (t.kind === 'booking' ? 'Booked today' : 'Closed today') + '</th><th class="num">Still open</th><th class="num">Flagged</th>'
   }<th>Progress</th>${t.key === 'nc15' ? '<th class="num">NC-15 %</th>' : ''}<th>Status</th><th>Idea / hint</th></tr></thead><tbody>${totalRow()}${b.rows
     .map((r) => {
       const s = r.tasks[t.key];
