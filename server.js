@@ -332,7 +332,7 @@ app.use(async (req, res, next) => {
   next();
 });
 // Sending mail and changing settings is for the owner only.
-app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/ptm-reminders', '/api/drive-check', '/api/email-check'], (req, res, next) =>
+app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/ptm-reminders', '/api/tutors', '/api/drive-check', '/api/email-check'], (req, res, next) =>
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 // A TM sees only their own students; other approved people see no student data.
@@ -770,6 +770,56 @@ app.post('/api/renewals/import', (req, res) => {
   if (!Array.isArray(b.rows) || !b.rows.length || !b.rows.every((r) => r && r.id && r.name)) return res.status(400).json({ error: 'Send {rows:[{id,name,...}]}.' });
   fs.mkdirSync(DATA, { recursive: true });
   fs.writeFileSync(RENEWALS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Uploaded', rows: b.rows }));
+  res.json({ ok: true, count: b.rows.length });
+});
+
+// Tutor Management: the Vantage "Tutor Master Dashboard" list (owner only: it holds phone numbers and mail ids).
+const TUTORS_SEED = path.join(ROOT, 'seed', 'tutors.json');
+const TUTORS_FILE = path.join(DATA, 'tutors.json');
+function loadTutors() {
+  for (const p of [TUTORS_FILE, TUTORS_SEED]) {
+    try {
+      return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch {}
+  }
+  return null;
+}
+const goodTutors = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every((r) => r && r.id && r.name);
+app.get('/api/tutors', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can open Tutor Management.' });
+  const d = loadTutors();
+  if (!d) return res.status(404).json({ error: 'No tutor data loaded yet.' });
+  res.json(d);
+});
+app.post('/api/tutors/import', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can load tutor data.' });
+  const b = req.body || {};
+  if (!goodTutors(b.rows)) return res.status(400).json({ error: 'Send {rows:[{id,name,...}]}.' });
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(TUTORS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Uploaded', rows: b.rows }));
+  res.json({ ok: true, count: b.rows.length });
+});
+// Twice a week a signed-in browser reads the Vantage dashboard and pushes it here with the same private key as the renewals.
+app.post('/api/cron/tutors-push', express.text({ type: '*/*', limit: '8mb' }), (req, res) => {
+  let saved;
+  try {
+    saved = JSON.parse(fs.readFileSync(RENEWAL_KEY_FILE, 'utf8'));
+  } catch {
+    return res.status(403).json({ error: 'No refresh key has been made yet.' });
+  }
+  let b;
+  try {
+    b = JSON.parse(typeof req.body === 'string' ? req.body : '{}');
+  } catch {
+    return res.status(400).json({ error: 'Send JSON.' });
+  }
+  if (!b.key || keyHash(b.key) !== saved.hash) return res.status(403).json({ error: 'Wrong key.' });
+  if (!goodTutors(b.rows)) return res.status(400).json({ error: 'No usable rows.' });
+  const prev = loadTutors();
+  const before = prev && prev.rows ? prev.rows.length : 0;
+  if (before && b.rows.length < before * 0.7) return res.status(409).json({ error: `Only ${b.rows.length} rows against ${before} before. Kept the old list.` });
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(TUTORS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Vantage · Tutor Master Dashboard', rows: b.rows }));
   res.json({ ok: true, count: b.rows.length });
 });
 

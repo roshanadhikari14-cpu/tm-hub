@@ -509,7 +509,206 @@ async function renewals() {
     a.click();
   };
 }
-const routes = { dashboard, team, tm, tasks, ptm, students, renewals, reports, schedule, settings };
+// ---------- Tutor Management: the Vantage Tutor Master Dashboard list (owner only) ----------
+const TT_TYPE = { regular: 'Regular', in_training: 'In training', i2_coach: 'I2 coach', one_on_one: 'One on one', co_tutor: 'Co-tutor', demo: 'Demo', olympiad: 'Olympiad', bootcamp_tutor: 'Bootcamp', internal: 'Internal', non_primary_tutor: 'Non-primary' };
+const ttBlank = () => ({ q: '', stm: [], tm: [], type: [], subject: [], grade: [], city: [], lang: [], leave: [], quick: '', sort: 'name', limit: 150 });
+let ttState = ttBlank();
+// a Vantage/portal CSV (quoted fields, commas inside) read into rows
+function ttCsv(text) {
+  const t = text.replace(/^\uFEFF/, '');
+  const out = [];
+  let r = [], c = '', q = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) {
+      if (ch === '"') { if (t[i + 1] === '"') { c += '"'; i++; } else q = false; } else c += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { r.push(c); c = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; r.push(c); c = ''; if (r.length > 1 || r[0]) out.push(r); r = []; }
+    else c += ch;
+  }
+  if (c || r.length) { r.push(c); out.push(r); }
+  const H = out[0] || [];
+  const col = (r, n) => String(r[H.indexOf(n)] == null ? '' : r[H.indexOf(n)]).replace(/\s+/g, ' ').trim();
+  return out.slice(1).map((r) => ({
+    id: col(r, 'Tutor ID'), name: col(r, 'Tutor Name'), mobile: col(r, 'Mobile Number'), email: col(r, 'Tutor Mail ID'), status: col(r, 'Status'), type: col(r, 'tutor_type'),
+    subject: col(r, 'Subject'), grade: col(r, 'Primary Grade'), grades2: col(r, 'Secondary Grades'), lang: col(r, 'Language'), city: col(r, 'City'),
+    joined: col(r, 'Date of Joining'), handover: col(r, 'Date of Handover'), lwd: col(r, 'Last Working Day'), resigned: col(r, 'Resignation Recorded'), lwdRec: col(r, 'Last Working Day (recorded)'),
+    notice: col(r, 'Notice Served'), rtype: col(r, 'Resignation Type'), rnote: col(r, 'Resignation Note'), filledBy: col(r, 'Form Filled By'), filledOn: col(r, 'Filled On'),
+    daysLeft: col(r, 'Days To Last Day'), leaving: col(r, 'Leaving Status'), tm: col(r, 'Tutor Manager'), tmId: col(r, 'Tutor Manager ID'), tmEmail: col(r, 'Tutor Manager Email'), stm: col(r, 'Sr Tutor Manager'),
+  })).filter((x) => x.id && x.name);
+}
+function ttInput() {
+  let inp = document.getElementById('ttFile');
+  if (inp) return inp;
+  inp = document.createElement('input');
+  inp.type = 'file';
+  inp.id = 'ttFile';
+  inp.accept = '.csv,.json,text/csv,application/json';
+  inp.hidden = true;
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      const txt = await f.text();
+      const rows = /\.json$/i.test(f.name) ? (JSON.parse(txt).rows || JSON.parse(txt)) : ttCsv(txt);
+      const out = await api('/api/tutors/import', { body: { rows, source: 'Uploaded from ' + f.name } });
+      toast('Loaded ' + out.count + ' tutors', 'ok');
+      inp.value = '';
+      tutors();
+    } catch (e) {
+      toast(e.message || 'Could not read that file', 'err');
+    }
+  };
+  document.body.appendChild(inp);
+  return inp;
+}
+const ttDate = (s) => {
+  const m = String(s || '').match(/(\d{1,2}) ([A-Za-z]{3}) (\d{4})/);
+  return m ? Date.parse(m[1] + ' ' + m[2] + ' ' + m[3] + ' 12:00 UTC') : NaN;
+};
+async function tutors() {
+  title('Tutor Management', 'Every tutor with their manager, subject, classes and resignation status');
+  view.innerHTML = '<div class="card empty">Loading tutors…</div>';
+  let j;
+  try {
+    j = await api('/api/tutors');
+  } catch (err) {
+    view.innerHTML = `<div class="card"><h3>No tutor data loaded</h3><p class="note">${esc(err.message)}</p>${rnIsOwner() ? '<button class="btn btn-primary" id="ttUp" type="button">⬆ Upload tutor data (.csv)</button>' : ''}</div>`;
+    if ($('#ttUp')) { ttInput(); $('#ttUp').onclick = () => ttInput().click(); }
+    return;
+  }
+  const rows = j.rows;
+  const now = Date.now();
+  for (const r of rows) {
+    r._join = ttDate(r.joined);
+    r._days = isNaN(r._join) ? null : Math.floor((now - r._join) / 86400000);
+    r._leaving = r.resigned === 'Yes' || !!r.leaving;
+    r._grades = [r.grade, ...String(r.grades2 || '').split(',').map((x) => x.trim())].filter(Boolean);
+    r._type = TT_TYPE[r.type] || r.type;
+  }
+  const uniq = (f) => [...new Set(rows.flatMap((r) => [].concat(f(r))).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true }));
+  const O = (l) => l.map((v) => (Array.isArray(v) ? { v: v[0], l: v[1] } : { v, l: v }));
+  const opt = (key, label, list) => rnMs(key, label, O(list), ttState[key]);
+  title('Tutor Management', `${j.source || ''} · loaded ${new Date(j.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`);
+  view.innerHTML = `
+    <div class="toolbar team-tools" style="flex-wrap:wrap">
+      <div class="search"><input id="ttQ" placeholder="Search ${rows.length} tutors by name, ID, mobile, mail or manager…" autocomplete="off" value="${esc(ttState.q)}"></div>
+      ${opt('stm', 'All Sr tutor managers', uniq((r) => r.stm))}
+      ${opt('tm', 'All tutor managers', uniq((r) => r.tm))}
+      ${opt('type', 'Any tutor type', uniq((r) => r.type).map((v) => [v, TT_TYPE[v] || v]))}
+      ${opt('subject', 'Any subject', uniq((r) => r.subject))}
+      ${opt('grade', 'Any class', uniq((r) => r._grades).map((g) => [g, 'Class ' + g]))}
+      ${opt('city', 'All cities', uniq((r) => r.city))}
+      ${opt('lang', 'Any language', uniq((r) => String(r.lang).split(',').map((x) => x.trim())))}
+      ${opt('leave', 'Any leaving status', uniq((r) => r.leaving))}
+      <select class="sel" id="ttSort" title="Sort"><option value="name">Name A to Z</option><option value="new">Newest joined first</option><option value="old">Longest with us first</option><option value="tm">Tutor manager</option></select>
+      <span style="flex:1"></span>
+      ${rnIsOwner() ? '<button class="btn btn-ghost" id="ttUp" type="button" title="Load a newer export (.csv)">⬆ Upload data</button>' : ''}
+      <button class="btn btn-ghost" id="ttClear" type="button">Clear filters</button>
+      <button class="btn btn-ghost" id="ttCsv" type="button">⬇ CSV</button>
+    </div>
+    <div class="rn-chips" id="ttSum"></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Tutor</th><th>Contact</th><th>Subject and classes</th><th>City · Language</th><th>Joined</th><th>Tutor manager</th><th>Resignation</th></tr></thead><tbody id="ttBody"></tbody></table></div></div>
+    <div id="ttMore" style="margin:12px 0"></div>`;
+  const QUICK = {
+    all: () => true,
+    leaving: (r) => r._leaving,
+    fresh: (r) => r._days != null && r._days <= 30,
+    training: (r) => r.type === 'in_training',
+    both: (r) => /,/.test(r.subject),
+    nomgr: (r) => !r.tm,
+  };
+  const has = (k, v) => !ttState[k].length || ttState[k].includes(v);
+  const filtered = (skipQuick) => {
+    const q = ttState.q.trim().toLowerCase();
+    const l = rows.filter(
+      (r) =>
+        has('stm', r.stm) && has('tm', r.tm) && has('type', r.type) && has('subject', r.subject) && has('city', r.city) && has('leave', r.leaving) &&
+        (!ttState.grade.length || r._grades.some((g) => ttState.grade.includes(g))) &&
+        (!ttState.lang.length || String(r.lang).split(',').some((x) => ttState.lang.includes(x.trim()))) &&
+        (!q || `${r.name} ${r.id} ${r.mobile} ${r.email} ${r.tm} ${r.stm}`.toLowerCase().includes(q)) &&
+        (skipQuick || !ttState.quick || QUICK[ttState.quick](r))
+    );
+    const by = { name: (a, b) => a.name.localeCompare(b.name), new: (a, b) => (b._join || 0) - (a._join || 0), old: (a, b) => (a._join || 9e15) - (b._join || 9e15), tm: (a, b) => a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) };
+    return l.slice().sort(by[ttState.sort] || by.name);
+  };
+  const tenure = (d) => (d == null ? '' : d < 31 ? d + ' days' : d < 365 ? Math.round(d / 30) + ' months' : (d / 365).toFixed(1) + ' years');
+  const resCell = (r) => {
+    if (!r._leaving) return '<small style="color:var(--ink-3)">—</small>';
+    const cls = r.leaving === 'Overdue' ? 'red' : 'amber';
+    const left = r.daysLeft === '' ? '' : Number(r.daysLeft) < 0 ? Math.abs(Number(r.daysLeft)) + ' days past last day' : r.daysLeft + ' days to last day';
+    return `<span class="ptag ${cls}">${esc(r.leaving || 'Resigned')}</span><br><small>Last day ${esc(r.lwdRec || r.lwd || '—')}${left ? ' · ' + esc(left) : ''}</small><br><small style="color:var(--ink-3)">${esc(r.rtype)}${r.notice ? ' · notice ' + (r.notice === 'Yes' ? 'served' : 'not served') : ''}</small>${r.rnote ? '<br><small>' + esc(r.rnote) + '</small>' : ''}`;
+  };
+  const paint = () => {
+    const l = filtered();
+    const shown = l.slice(0, ttState.limit);
+    const base = filtered(true);
+    const chip = (k, cls, label, n) => `<button type="button" class="ptag ${cls} rn-chip ${ttState.quick === k ? 'on' : ''}" data-q="${k}" title="Show only these tutors">${n} ${label}</button>`;
+    $('#ttSum').innerHTML =
+      chip('all', 'blue', 'tutors', base.length) +
+      chip('leaving', 'red', 'leaving or resigned', base.filter(QUICK.leaving).length) +
+      chip('fresh', 'ok', 'joined in last 30 days', base.filter(QUICK.fresh).length) +
+      chip('training', 'amber', 'in training', base.filter(QUICK.training).length) +
+      chip('both', '', 'teach Maths and Science', base.filter(QUICK.both).length) +
+      chip('nomgr', '', 'no tutor manager', base.filter(QUICK.nomgr).length);
+    $$('#ttSum .rn-chip').forEach((b) => (b.onclick = () => {
+      ttState.quick = b.dataset.q === 'all' || ttState.quick === b.dataset.q ? '' : b.dataset.q;
+      ttState.limit = 150;
+      paint();
+    }));
+    $('#ttBody').innerHTML = shown.map((r, i) => `<tr>
+        <td class="num">${i + 1}</td>
+        <td style="min-width:170px"><b>${esc(r.name)}</b><br><small style="color:var(--ink-3)">ID ${esc(r.id)}</small> <span class="ptag ${r.type === 'regular' ? 'blue' : ''}">${esc(r._type)}</span></td>
+        <td style="min-width:190px;white-space:nowrap">${esc(r.mobile)}<br><small style="color:var(--ink-3)">${esc(r.email)}</small></td>
+        <td style="min-width:150px"><b>${esc(r.subject)}</b><br><small>Class ${esc(r.grade)}${r.grades2 ? ' · also ' + esc(r.grades2) : ''}</small></td>
+        <td style="min-width:140px">${esc(r.city) || '<small style="color:var(--ink-3)">—</small>'}<br><small style="color:var(--ink-3)">${esc(r.lang)}</small></td>
+        <td style="white-space:nowrap">${esc(r.joined)}<br><small style="color:var(--ink-3)">${esc(tenure(r._days))}${r.handover ? ' · handover ' + esc(r.handover) : ''}</small></td>
+        <td style="min-width:150px">${r.tm ? '<b>' + esc(r.tm) + '</b>' : '<small style="color:var(--ink-3)">Not assigned</small>'}<br><small style="color:var(--ink-3)">${esc(r.stm)}</small></td>
+        <td style="min-width:200px">${resCell(r)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No tutor matches</td></tr>';
+    $('#ttMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="ttAll">Show all ${l.length}</button>` : `<span class="note">${l.length} tutor${l.length === 1 ? '' : 's'}</span>`;
+    if ($('#ttAll')) $('#ttAll').onclick = () => ((ttState.limit = 9999), paint());
+  };
+  paint();
+  $('#ttQ').oninput = (e) => { ttState.q = e.target.value; ttState.limit = 150; paint(); };
+  $('#ttSort').value = ttState.sort;
+  $('#ttSort').onchange = (e) => { ttState.sort = e.target.value; paint(); };
+  const msLabel = (box) => {
+    const checked = [...box.querySelectorAll('input:checked')].map((i) => i.nextElementSibling.textContent);
+    box.querySelector('.ms-btn span').textContent = !checked.length ? box.dataset.label : checked.length <= 2 ? checked.join(', ') : checked.length + ' selected';
+    box.querySelector('.ms-btn').classList.toggle('has', checked.length > 0);
+  };
+  const closeAll = (except) => $$('.ms-pop').forEach((p) => { if (p !== except) p.hidden = true; });
+  $$('.ms').forEach((box) => {
+    const key = box.dataset.key;
+    const pop = box.querySelector('.ms-pop');
+    box.querySelector('.ms-btn').onclick = (e) => { e.stopPropagation(); closeAll(pop); pop.hidden = !pop.hidden; const q = box.querySelector('.ms-q'); if (q && !pop.hidden) q.focus(); };
+    pop.onclick = (e) => e.stopPropagation();
+    box.querySelectorAll('.ms-opt input').forEach((i) => (i.onchange = () => {
+      ttState[key] = [...box.querySelectorAll('.ms-opt input:checked')].map((x) => x.value);
+      ttState.limit = 150; msLabel(box); paint();
+    }));
+    box.querySelector('.ms-clear').onclick = () => { box.querySelectorAll('.ms-opt input').forEach((i) => (i.checked = false)); ttState[key] = []; msLabel(box); paint(); };
+    box.querySelector('.ms-done').onclick = () => (pop.hidden = true);
+    const q = box.querySelector('.ms-q');
+    if (q) q.oninput = () => { const t = q.value.trim().toLowerCase(); box.querySelectorAll('.ms-opt').forEach((o) => (o.hidden = !!t && !o.textContent.toLowerCase().includes(t))); };
+  });
+  if (!window.__rnMsBound) { window.__rnMsBound = true; document.addEventListener('click', () => $$('.ms-pop').forEach((p) => (p.hidden = true))); }
+  ttInput();
+  if ($('#ttUp')) $('#ttUp').onclick = () => ttInput().click();
+  $('#ttClear').onclick = () => { ttState = ttBlank(); tutors(); };
+  $('#ttCsv').onclick = () => {
+    const l = filtered();
+    const cols = [['Tutor ID', (r) => r.id], ['Tutor', (r) => r.name], ['Mobile', (r) => r.mobile], ['Mail', (r) => r.email], ['Type', (r) => r._type], ['Subject', (r) => r.subject], ['Primary class', (r) => r.grade], ['Other classes', (r) => r.grades2], ['Language', (r) => r.lang], ['City', (r) => r.city], ['Joined', (r) => r.joined], ['Handover', (r) => r.handover], ['Tutor manager', (r) => r.tm], ['Sr tutor manager', (r) => r.stm], ['Leaving status', (r) => r.leaving], ['Last working day', (r) => r.lwdRec || r.lwd], ['Resignation type', (r) => r.rtype], ['Resignation note', (r) => r.rnote]];
+    const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(c[1](r))).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
+    a.download = 'tutors.csv';
+    a.click();
+  };
+}
+const routes = { dashboard, team, tm, tasks, ptm, students, renewals, tutors, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
