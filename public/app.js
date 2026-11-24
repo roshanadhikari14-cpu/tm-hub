@@ -142,7 +142,7 @@ function moveTab(tabs) {
 }
 const gradeClass = (score) => (score >= 85 ? 'star' : score >= 70 ? '' : score >= 50 ? 'push' : 'risk');
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'never');
-const daysAgo = (iso) => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
+const daysAgo = (iso) => (iso ? istDaysAgo(iso) : null);
 
 // How one task cell reads for the chosen report time.
 function cellText(t, s, slot) {
@@ -255,6 +255,11 @@ $('#refreshBtn').onclick = async () => {
 };
 
 // ---------- router ----------
+// calendar days between an instant and now, counted by the date in India (a call at 3 PM yesterday is "yesterday" at 9 AM)
+const istDaysAgo = (iso) => {
+  const day = (d) => Date.parse(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00Z');
+  return Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
+};
 // ---------- Renewals: the Vantage renewal list with filters ----------
 const rnBlank = () => ({ q: '', tm: [], office: [], status: [], at: [], school: [], grade: [], band: [], rtype: [], ptm: [], quick: '', rem: false, sort: 'att', limit: 150 });
 let rnState = rnBlank();
@@ -387,7 +392,7 @@ async function renewals() {
     if (!c) return '<small style="color:var(--ink-3)">No connected call found</small>';
     const d = new Date(c.at);
     const when = d.toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
-    const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    const days = istDaysAgo(c.at);
     const ago = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
     const sec = c.seconds;
     const dur = sec == null ? 'length not available' : sec < 60 ? sec + ' sec' : Math.floor(sec / 60) + ' min ' + (sec % 60 ? (sec % 60) + ' sec' : '');
@@ -2163,7 +2168,7 @@ let ptmAll = [];
 const dDate = (iso, opts) => (iso ? new Date(iso).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', ...opts }) : '—');
 const dAgo = (iso) => {
   if (!iso) return '';
-  const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  const d = istDaysAgo(iso);
   return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
 };
 const dField = (label, html, full) => `<div class="${full ? 'dfull' : ''}"><small>${esc(label)}</small><b>${html}</b></div>`;
