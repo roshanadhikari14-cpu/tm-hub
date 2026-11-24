@@ -433,3 +433,8 @@ button.ts:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); bor
 .pdf-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .pdf-pages { max-height: 76vh; overflow: auto; background: #e9e5da; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .pdf-page { width: 100%; max-width: 820px; height: auto; background: #fff; box-shadow: 0 8px 24px -10px rgba(20, 23, 43, 0.35); border-radius: 4px; }
+
+/* TM card score: white disc behind the ring so the number reads over the dark header and the white card alike */
+.tm-card .ring-wrap .ring { background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18); }
+.tm-card .ring-wrap .ring b { color: #0f172a; }
+.tm-card .ring-wrap .ring .track { stroke: #e3e8f0; }
