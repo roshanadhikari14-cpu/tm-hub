@@ -16,6 +16,7 @@ const auth = require('./lib/auth');
 const persist = require('./lib/persist');
 const Remarks = require('./lib/ptmRemarks');
 const PRem = require('./lib/ptmReminders');
+const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
 const Access = require('./lib/access');
 const { DATA, CLOUD } = require('./lib/paths');
@@ -710,7 +711,20 @@ app.get('/api/renewals', async (req, res) => {
     const x = tms.find((m) => [m.name, m.lighthouseName, m.oldName].some((v) => v && v.toLowerCase() === String(n).toLowerCase()));
     return x ? x.name : n;
   };
-  let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm), ptm: ptm ? (ptm.map.get(String(r.id)) || null) : undefined }));
+  // last connected parent call with its length; older ones fall back to Lighthouse's "last contact" time (no length)
+  let calls = null;
+  try {
+    calls = await LastCalls.lastCalls(21);
+  } catch {}
+  const contact = {};
+  const A = loadLatest();
+  for (const list of Object.values((A && A.students) || {})) for (const x of list || []) if (x.lastContact) contact[String(x.id)] = x.lastContact;
+  const callOf = (id) => {
+    const c = calls && calls[id];
+    if (c) return { at: c.at, seconds: c.seconds, incoming: c.incoming, src: 'call' };
+    return contact[String(id)] ? { at: contact[String(id)], seconds: null, incoming: null, src: 'contact' } : null;
+  };
+  let rows = d.rows.map((r) => ({ ...r, tm: tmOf(r.tm), lastCall: callOf(r.id), ptm: ptm ? (ptm.map.get(String(r.id)) || null) : undefined }));
   if (req.role === 'tm') rows = rows.filter((r) => r.tm === req.myTm);
   res.json({ at: d.at, source: d.source, due: (rows[0] || {}).due || '', team: [...new Set(rows.map((r) => r.tm))].sort(), ptmFrom: ptm && ptm.from, ptmTo: ptm && ptm.to, ptmError, rows });
 });

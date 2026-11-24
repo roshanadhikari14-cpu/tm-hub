@@ -343,7 +343,7 @@ async function renewals() {
       ${opt('grade', 'All classes', uniq('grade').map((g) => [g, 'Class ' + g]))}
       ${opt('band', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'])}
       <label class="fchip" style="cursor:pointer"><input type="checkbox" id="rnRem" ${rnState.rem ? 'checked' : ''}> With remarks only</label>
-      <select class="sel" id="rnSort" title="Sort"><option value="att" ${rnState.sort === 'att' ? 'selected' : ''}>Lowest attendance first</option><option value="name" ${rnState.sort === 'name' ? 'selected' : ''}>Name A to Z</option><option value="tm" ${rnState.sort === 'tm' ? 'selected' : ''}>TM</option></select>
+      <select class="sel" id="rnSort" title="Sort"><option value="att" ${rnState.sort === 'att' ? 'selected' : ''}>Lowest attendance first</option><option value="call" ${rnState.sort === 'call' ? 'selected' : ''}>Longest since last call first</option><option value="name" ${rnState.sort === 'name' ? 'selected' : ''}>Name A to Z</option><option value="tm" ${rnState.sort === 'tm' ? 'selected' : ''}>TM</option></select>
       <span style="flex:1"></span>
       ${rnIsOwner() ? '<button class="btn btn-ghost" id="rnUp" type="button" title="Load a newer export of the renewal list">⬆ Upload data</button>' : ''}
       <button class="btn btn-ghost" id="rnClear" type="button">Clear filters</button>
@@ -351,7 +351,7 @@ async function renewals() {
     </div>
     <div class="rn-chips" id="rnSum"></div>
     <div class="note" style="margin:0 0 10px">PTM status covers ${esc(j.ptmFrom || '')} to ${esc(j.ptmTo || '')} (last 10 days). ${j.ptmError ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.ptmError)}</span>` : ''}</div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Renewal</th><th>PTM (last 10 days)</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Renewal</th><th>Last parent call</th><th>PTM (last 10 days)</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
     <div id="rnMore" style="margin:12px 0"></div>`;
   const tagOf = (v, kind) => {
     if (!v) return '';
@@ -379,7 +379,19 @@ async function renewals() {
         (skipQuick || !rnState.quick || QUICK[rnState.quick](r))
     );
     const num = (r) => (r.att === '' ? 999 : Number(r.att));
-    return l.slice().sort((a, b) => (rnState.sort === 'name' ? a.name.localeCompare(b.name) : rnState.sort === 'tm' ? a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) : num(a) - num(b) || a.name.localeCompare(b.name)));
+    const callT = (r) => (r.lastCall ? new Date(r.lastCall.at).getTime() : 0);
+    return l.slice().sort((a, b) => (rnState.sort === 'call' ? callT(a) - callT(b) || a.name.localeCompare(b.name) : rnState.sort === 'name' ? a.name.localeCompare(b.name) : rnState.sort === 'tm' ? a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) : num(a) - num(b) || a.name.localeCompare(b.name)));
+  };
+  const callCell = (r) => {
+    const c = r.lastCall;
+    if (!c) return '<small style="color:var(--ink-3)">No connected call found</small>';
+    const d = new Date(c.at);
+    const when = d.toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+    const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    const ago = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
+    const sec = c.seconds;
+    const dur = sec == null ? 'length not available' : sec < 60 ? sec + ' sec' : Math.floor(sec / 60) + ' min ' + (sec % 60 ? (sec % 60) + ' sec' : '');
+    return '<b>' + esc(when) + '</b><br><small>' + esc(dur) + (c.incoming ? ' · parent called' : '') + '</small><br><small style="color:' + (days > 7 ? 'var(--red)' : 'var(--ink-3)') + '">' + ago + '</small>';
   };
   const ptmCell = (r) => {
     const p = r.ptm;
@@ -415,8 +427,9 @@ async function renewals() {
         <td style="min-width:130px">${esc(r.office)}</td>
         <td style="min-width:150px">${tagOf(r.status, 'sales')}<br>${tagOf(r.atStatus, 'at')}<br><small style="color:var(--ink-3)">Attendance ${esc(r.att || '—')}${r.att !== '' ? '%' : ''}</small></td>
         <td style="white-space:nowrap">${r.rtype ? `<span class="ptag rn-r${({ '1st': 1, '2nd': 2, '3rd': 3, '3rd +': 4 })[r.rtype] || 0}">${esc(r.rtype)}</span>` : '<small style="color:var(--ink-3)">—</small>'}</td>
+        <td style="min-width:150px;white-space:nowrap">${callCell(r)}</td>
         <td style="min-width:200px">${ptmCell(r)}</td>
-        <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No student matches</td></tr>';
+        <td class="rn-rem">${esc(r.remarks) || '<small style="color:var(--ink-3)">—</small>'}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">No student matches</td></tr>';
     $('#rnMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="rnAll">Show all ${l.length}</button>` : `<span class="note">${l.length} student${l.length === 1 ? '' : 's'}</span>`;
     const all = $('#rnAll');
     if (all) all.onclick = () => ((rnState.limit = 9999), paint());
@@ -482,7 +495,7 @@ async function renewals() {
   };
   $('#rnCsv').onclick = () => {
     const l = filtered();
-    const cols = [['Student ID', (r) => r.id], ['Student', (r) => r.name], ['School', (r) => r.school], ['Class', (r) => r.grade], ['TM', (r) => r.tm], ['Office', (r) => r.office], ['Sales status', (r) => r.status], ['Academic status', (r) => r.atStatus], ['Renewal', (r) => r.rtype], ['Attendance %', (r) => r.att], ['PTM (10 days)', (r) => (r.ptm && r.ptm.state !== 'cancelled' ? (RN_PTM[r.ptm.state] || [''])[0] + ' ' + (r.ptm.date || '') : 'None')], ['PTM remark', (r) => (r.ptm && r.ptm.remark ? r.ptm.remark.text : '')], ['Remarks', (r) => r.remarks]];
+    const cols = [['Student ID', (r) => r.id], ['Student', (r) => r.name], ['School', (r) => r.school], ['Class', (r) => r.grade], ['TM', (r) => r.tm], ['Office', (r) => r.office], ['Sales status', (r) => r.status], ['Academic status', (r) => r.atStatus], ['Renewal', (r) => r.rtype], ['Attendance %', (r) => r.att], ['Last parent call', (r) => (r.lastCall ? new Date(r.lastCall.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' }) : '')], ['Last call length (sec)', (r) => (r.lastCall && r.lastCall.seconds != null ? r.lastCall.seconds : '')], ['PTM (10 days)', (r) => (r.ptm && r.ptm.state !== 'cancelled' ? (RN_PTM[r.ptm.state] || [''])[0] + ' ' + (r.ptm.date || '') : 'None')], ['PTM remark', (r) => (r.ptm && r.ptm.remark ? r.ptm.remark.text : '')], ['Remarks', (r) => r.remarks]];
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(c[1](r))).join(','))].join('\n');
     const a = document.createElement('a');
