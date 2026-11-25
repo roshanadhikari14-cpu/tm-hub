@@ -360,6 +360,33 @@ app.use(['/api/students.csv'], (req, res, next) => {
 app.use('/api/ptm-report', (req, res, next) => (req.role === 'viewer' ? res.status(403).json({ error: 'Not allowed.' }) : next()));
 app.use(express.static(path.join(ROOT, 'public')));
 
+// Names of the people who sign in (from their Google profile), so the greeting can use the right one
+const USER_NAMES = path.join(DATA, 'user-names.json');
+const rememberName = (email, name) => {
+  if (!email || !name) return;
+  try {
+    const m = JSON.parse(fs.readFileSync(USER_NAMES, 'utf8'));
+    if (m[email] === name) return;
+    m[email] = name;
+    fs.writeFileSync(USER_NAMES, JSON.stringify(m));
+  } catch {
+    try {
+      fs.mkdirSync(DATA, { recursive: true });
+      fs.writeFileSync(USER_NAMES, JSON.stringify({ [email]: name }));
+    } catch {}
+  }
+};
+// A TM is greeted by their TM name; others by their Google name, else a name made from the mail address
+const userName = (req) => {
+  if (!req || !req.user) return '';
+  if (req.role === 'tm' && req.myTm) return req.myTm;
+  try {
+    const n = JSON.parse(fs.readFileSync(USER_NAMES, 'utf8'))[req.user];
+    if (n) return n;
+  } catch {}
+  const first = String(req.user).split('@')[0].split(/[._0-9-]+/)[0];
+  return first ? first[0].toUpperCase() + first.slice(1) : '';
+};
 const status = (req) => {
   const A = loadLatest();
   const c = loadConfig();
@@ -369,6 +396,7 @@ const status = (req) => {
     cloud: CLOUD,
     storage: !CLOUD || persist.enabled,
     user: req ? req.user : null,
+    userName: userName(req),
     owner: req ? isOwner(req) : true,
     role: req ? req.role || 'owner' : 'owner',
     myTm: req ? req.myTm || '' : '',
@@ -1249,6 +1277,7 @@ app.get('/auth/google/callback', async (req, res) => {
     if (!G.allowed(who.email)) throw new Error(`${who.email} is not an @${G.DOMAIN} account.`);
     if (GATED && !mayLogin(who.email)) return res.status(403).send(await accessRequestPage(req, who));
     if (GATED) auth.signIn(req, res, who.email);
+    rememberName(who.email, who.name);
     if (who.mode === 'tm') {
       const isTm = team().some((t) => String(t.email).toLowerCase() === who.email) || who.email === ownerEmail();
       if (!isTm) throw new Error(`${who.email} is not on the TM list, so a mailbox can't be connected for it.`);

@@ -1059,7 +1059,7 @@ async function dashboard() {
     <div class="hero rise">
       ${bit('Aurora', { colorStops: ['#7c81e8', '#b3b6fa', '#4a4fc4'], amplitude: 1.1, blend: 0.6, speed: 0.6, opacity: 0.55, mouseInteraction: true }, '', 'position:absolute;inset:0;display:block;pointer-events:none')}
       ${magic('BorderBeam', { size: 160, duration: 9, colorFrom: '#b3b6fa', colorTo: '#ffffff', borderWidth: 2 })}
-      <div style="position:relative"><h2>${bit('BlurText', { text: `${hello}, ${(st.fromName || 'Roshan').split(' ')[0]} 👋`, delay: 90, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2>
+      <div style="position:relative"><h2>${bit('BlurText', { text: `${hello}, ${(st.userName || st.fromName || 'there').split(' ')[0]} 👋`, delay: 90, animateBy: 'words', direction: 'top' }, '', 'display:inline-block')}</h2>
         <p>${b.scoped ? (b.rows.length ? 'Your tasks and students are in My profile. The tiles below are the overall team numbers.' : 'Overall team numbers.') : critTMs.length ? `${critTMs.length} of ${b.rows.length} TMs have something that needs attention.` : 'Everything is on track across the team.'}</p>
         <div class="hero-faces" style="margin:16px 0 0 12px">${b.rows.map((r) => `<a href="#/tm/${encodeURIComponent(r.name)}" title="${esc(r.name)}"><img src="${photo(r)}" alt=""></a>`).join('')}</div></div>
       <div class="next-send" style="position:relative"><small>${esc(nx.label)}</small><b>${bit('GradientText', { colors: ['#ffffff', '#b3b6fa', '#ffffff'], animationSpeed: 5 }, esc(nx.value))}</b><small style="margin-top:4px">${st.email ? `from ${esc(st.sender)}` : 'Email not set up yet'}</small></div>
