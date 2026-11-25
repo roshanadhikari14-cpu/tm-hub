@@ -1022,6 +1022,10 @@ app.get('/api/students.csv', async (req, res) => {
 app.post('/api/refresh', async (req, res) => {
   try {
     TutorLeaves.bust();
+    LastCalls.bust();
+    ptmRanges.clear();
+    Object.assign(ptmCache, { at: 0, key: '', data: null });
+    ptm30 = { at: 0, data: null };
     const A = await refresh();
     res.json({ ok: true, errors: A.errors, at: A.fetchedAt });
   } catch (e) {
