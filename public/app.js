@@ -823,7 +823,7 @@ function noData() {
 }
 
 // ---------- All students: details, PTMs of the last 30 days, reports ----------
-const stState = { q: '', tm: 'all', f: 'all', limit: 120 };
+const stState = { q: '', tm: 'all', f: 'all', col: '', dir: 1, limit: 120 };
 let stRows = [];
 async function students() {
   title('All students', 'Details, PTMs done in the last 30 days and saved reports');
@@ -850,14 +850,21 @@ async function students() {
       <a class="btn btn-ghost" href="/api/students.csv${owner ? '' : ''}" download>⬇ CSV</a>
     </div>
     <div class="note" style="margin:-6px 0 12px">PTMs done between ${esc(j.from)} and ${esc(j.to)}, with the parent’s time in the meeting. ${j.error ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.error)}</span>` : ''}</div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th>${owner ? '<th>TM</th>' : ''}<th>Parent${owner ? ' / phone' : ''}</th><th>Learning</th><th>Last parent call</th><th>PTMs done (30 days)</th><th>PTM report</th></tr></thead><tbody id="stBody"></tbody></table></div><div class="actions" id="stMore" style="justify-content:center;padding:10px"></div></div>`;
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th>${thSort('Student', 'name', stState)}${owner ? thSort('TM', 'tm', stState) : ''}<th>Parent${owner ? ' / phone' : ''}</th>${thSort('Learning', 'learn', stState)}${thSort('Last parent call', 'call', stState)}${thSort('PTMs done (30 days)', 'ptm', stState)}${thSort('PTM report', 'rep', stState)}</tr></thead><tbody id="stBody"></tbody></table></div><div class="actions" id="stMore" style="justify-content:center;padding:10px"></div></div>`;
   const shortDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const paint = () => {
     const q = stState.q.trim().toLowerCase();
     const base = stRows.filter((r) => (stState.tm === 'all' || r.tm === stState.tm) && (!q || `${r.name} ${r.id} ${r.school} ${r.batch} ${r.grade}`.toLowerCase().includes(q)));
     const test = { all: () => true, ptm: (r) => r.ptms.length > 0, noptm: (r) => r.ptms.length === 0, rep: (r) => r.reports.length > 0 };
     $$('#stChips [data-n]').forEach((s) => (s.textContent = base.filter(test[s.dataset.n]).length));
-    const list = base.filter(test[stState.f]);
+    let list = base.filter(test[stState.f]);
+    if (stState.col) {
+      const key = {
+        name: (r) => r.name, tm: (r) => r.tm, learn: (r) => (r.attPct == null ? -1 : r.attPct), call: (r) => (r.lastCall ? new Date(r.lastCall.at).getTime() : 0),
+        ptm: (r) => r.ptms.length, rep: (r) => r.reports.length,
+      }[stState.col];
+      list = list.slice().sort((x, y) => stState.dir * cmpVal(key(x), key(y)) || x.name.localeCompare(y.name));
+    }
     const shown = list.slice(0, stState.limit);
     $('#stBody').innerHTML = shown
       .map((r, i) => {
@@ -880,6 +887,7 @@ async function students() {
     if (all) all.onclick = () => ((stState.limit = 9999), paint());
   };
   paint();
+  bindSort($('#stBody').closest('table'), stState, () => paint());
   $('#stQ').oninput = (e) => ((stState.q = e.target.value), (stState.limit = 120), paint());
   const sel = $('#stTm');
   if (sel) sel.onchange = (e) => ((stState.tm = e.target.value), (stState.limit = 120), paint());
