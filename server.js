@@ -251,7 +251,9 @@ async function runSlot(slot, manual = false) {
 }
 
 // On Vercel the timing comes from scheduled jobs instead (see /api/cron).
-if (!CLOUD) setInterval(() => {
+// Mails go out from the hosted site. A copy running on a PC (no Google sign-in, an old App Password) must not send the
+// slot mails too, or it fails and retries every minute (or double-sends); set LOCAL_SCHEDULER=1 to run them from a PC.
+if (!CLOUD && process.env.LOCAL_SCHEDULER === '1') setInterval(() => {
   const c = loadConfig();
   const now = istNow();
   if (!c.enabled || running || now.day === 'Sun') return;
