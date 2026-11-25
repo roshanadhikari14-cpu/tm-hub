@@ -500,6 +500,7 @@ app.get('/api/ptm', async (req, res) => {
   }
   if (req.role === 'viewer') return res.status(403).json({ error: 'Not allowed.' });
   const remarks = Remarks.load();
+  const repIdx = repIndex();
   const tms = team().map((m) => ({ name: m.name, lh: m.lighthouseName || m.name, old: m.oldName || '' }));
   const tmOf = (host) => {
     const t = tms.find((x) => [x.name, x.lh, x.old].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
@@ -512,7 +513,7 @@ app.get('/api/ptm', async (req, res) => {
     monthStart,
     fetchedAt: new Date(data.at).toISOString(),
     team: tms.map((t) => t.name).filter((n) => req.role !== 'tm' || n === req.myTm),
-    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host), remark: remarks[m.id] || null })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
+    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host), remark: remarks[m.id] || null, reports: (repIdx[String(m.studentId)] || []).map((r) => ({ id: r.id, month: r.month, at: r.at })) })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
   });
 });
 // A TM writes remarks on their own PTMs after the meeting; the owner can write on any.
