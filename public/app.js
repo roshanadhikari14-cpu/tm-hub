@@ -319,7 +319,7 @@ function rnEnsureInput() {
 function rnUpload() {
   rnEnsureInput().click();
 }
-// PTM status of the last 15 days for one student
+// PTM status of the last 20 days for one student
 const RN_PTM = {
   completed: ['PTM done', 'ok'],
   no_show: ['Parent no-show', 'red'],
@@ -360,7 +360,7 @@ async function renewals() {
       ${opt('status', 'Any sales status', uniq('status'))}
       ${opt('at', 'Any academic status', uniq('atStatus'))}
       ${opt('rtype', 'Any renewal', [['1st', '1st renewal'], ['2nd', '2nd renewal'], ['3rd', '3rd renewal'], ['3rd +', '3rd+ renewal']].filter((v) => rows.some((r) => r.rtype === v[0])))}
-      ${opt('ptm', 'Any PTM status', [['completed', 'PTM done'], ['no_show', 'Parent no-show'], ['unmarked', 'Not marked'], ['upcoming', 'Scheduled'], ['none', 'No PTM in 15 days']])}
+      ${opt('ptm', 'Any PTM status', [['completed', 'PTM done'], ['no_show', 'Parent no-show'], ['unmarked', 'Not marked'], ['upcoming', 'Scheduled'], ['none', 'No PTM in 20 days']])}
       ${opt('school', 'All schools', uniq('school'))}
       ${opt('grade', 'All classes', uniq('grade').map((g) => [g, 'Class ' + g]))}
       ${opt('band', 'Any attendance', ['Below 60%', '60% to 79%', '80% and above'])}
@@ -372,8 +372,8 @@ async function renewals() {
       <button class="btn btn-ghost" id="rnCsv" type="button">⬇ CSV</button>
     </div>
     <div class="rn-chips" id="rnSum"></div>
-    <div class="note" style="margin:0 0 10px">PTM status covers ${esc(j.ptmFrom || '')} to ${esc(j.ptmTo || '')} (last 15 days). ${j.ptmError ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.ptmError)}</span>` : ''}</div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Student', 'name', rnState)}${thSort('School', 'school', rnState)}${thSort('TM', 'tm', rnState)}${thSort('Office', 'office', rnState)}${thSort('Status', 'status', rnState)}${thSort('Renewal', 'rtype', rnState)}${thSort('Last parent call', 'call', rnState)}${thSort('PTM (last 15 days)', 'ptm', rnState)}${thSort('Remarks', 'remarks', rnState)}</tr></thead><tbody id="rnBody"></tbody></table></div></div>
+    <div class="note" style="margin:0 0 10px">PTM status covers ${esc(j.ptmFrom || '')} to ${esc(j.ptmTo || '')} (last 20 days). ${j.ptmError ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.ptmError)}</span>` : ''}</div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Student', 'name', rnState)}${thSort('School', 'school', rnState)}${thSort('TM', 'tm', rnState)}${thSort('Office', 'office', rnState)}${thSort('Status', 'status', rnState)}${thSort('Renewal', 'rtype', rnState)}${thSort('Last parent call', 'call', rnState)}${thSort('PTM (last 20 days)', 'ptm', rnState)}${thSort('Remarks', 'remarks', rnState)}</tr></thead><tbody id="rnBody"></tbody></table></div></div>
     <div id="rnMore" style="margin:12px 0"></div>`;
   const tagOf = (v, kind) => {
     if (!v) return '';
@@ -428,7 +428,7 @@ async function renewals() {
   const ptmCell = (r) => {
     const p = r.ptm;
     if (j.ptmError) return '<small style="color:var(--ink-3)">PTM data unavailable</small>';
-    if (!p || p.state === 'cancelled') return '<span class="ptag">No PTM in 15 days</span>';
+    if (!p || p.state === 'cancelled') return '<span class="ptag">No PTM in 20 days</span>';
     const [label, cls] = RN_PTM[p.state] || ['PTM', ''];
     const d = p.date ? new Date(p.date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
     const meta = [d, p.state === 'completed' && p.minutes ? p.minutes + ' min' : '', p.count > 1 ? p.count + ' meetings' : ''].filter(Boolean).join(' · ');
@@ -529,7 +529,7 @@ async function renewals() {
   };
   $('#rnCsv').onclick = () => {
     const l = filtered();
-    const cols = [['Student ID', (r) => r.id], ['Student', (r) => r.name], ['School', (r) => r.school], ['Class', (r) => r.grade], ['TM', (r) => r.tm], ['Office', (r) => r.office], ['Sales status', (r) => r.status], ['Academic status', (r) => r.atStatus], ['Renewal', (r) => r.rtype], ['Attendance %', (r) => r.att], ['Last parent call', (r) => (r.lastCall ? new Date(r.lastCall.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' }) : '')], ['Last call length (sec)', (r) => (r.lastCall && r.lastCall.seconds != null ? r.lastCall.seconds : '')], ['PTM (15 days)', (r) => (r.ptm && r.ptm.state !== 'cancelled' ? (RN_PTM[r.ptm.state] || [''])[0] + ' ' + (r.ptm.date || '') : 'None')], ['PTM remark', (r) => (r.ptm && r.ptm.remark ? r.ptm.remark.text : '')], ['Remarks', (r) => r.remarks]];
+    const cols = [['Student ID', (r) => r.id], ['Student', (r) => r.name], ['School', (r) => r.school], ['Class', (r) => r.grade], ['TM', (r) => r.tm], ['Office', (r) => r.office], ['Sales status', (r) => r.status], ['Academic status', (r) => r.atStatus], ['Renewal', (r) => r.rtype], ['Attendance %', (r) => r.att], ['Last parent call', (r) => (r.lastCall ? new Date(r.lastCall.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' }) : '')], ['Last call length (sec)', (r) => (r.lastCall && r.lastCall.seconds != null ? r.lastCall.seconds : '')], ['PTM (20 days)', (r) => (r.ptm && r.ptm.state !== 'cancelled' ? (RN_PTM[r.ptm.state] || [''])[0] + ' ' + (r.ptm.date || '') : 'None')], ['PTM remark', (r) => (r.ptm && r.ptm.remark ? r.ptm.remark.text : '')], ['Remarks', (r) => r.remarks]];
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(c[1](r))).join(','))].join('\n');
     const a = document.createElement('a');

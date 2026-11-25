@@ -652,10 +652,10 @@ function loadRenewals() {
   }
   return null;
 }
-// PTMs of the last 15 days, one summary per student: done / parent no-show / not marked / scheduled / none.
+// PTMs of the last 20 days, one summary per student: done / parent no-show / not marked / scheduled / none.
 async function renewalPtms() {
   const today = istDate();
-  const from = addDays(today, -14);
+  const from = addDays(today, -19);
   const key = `ren|${from}|${today}`;
   let hit = ptmRanges.get(key);
   if (!hit || Date.now() - hit.at > 3 * 60 * 1000) {
