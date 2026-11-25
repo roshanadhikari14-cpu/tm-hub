@@ -167,7 +167,7 @@ async function load(force) {
   paintChrome();
   return S.data;
 }
-const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students', 'renewals'], viewer: ['dashboard'] };
+const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students', 'renewals', 'tutors'], viewer: ['dashboard'] };
 function roleOK(name) {
   const role = S.status && S.status.role;
   return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);

@@ -332,7 +332,7 @@ app.use(async (req, res, next) => {
   next();
 });
 // Sending mail and changing settings is for the owner only.
-app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/ptm-reminders', '/api/tutors', '/api/drive-check', '/api/email-check'], (req, res, next) =>
+app.use(['/api/send', '/api/config', '/api/ai-key', '/api/login', '/api/email-settings', '/api/google-client', '/api/google-signout', '/api/access', '/api/preview', '/api/subjects', '/api/ptm-reminders', '/api/drive-check', '/api/email-check'], (req, res, next) =>
   isOwner(req) ? next() : res.status(403).json({ error: `Only ${ownerEmail() || 'the owner'} can do this.` })
 );
 // A TM sees only their own students; other approved people see no student data.
@@ -773,7 +773,7 @@ app.post('/api/renewals/import', (req, res) => {
   res.json({ ok: true, count: b.rows.length });
 });
 
-// Tutor Management: the Vantage "Tutor Master Dashboard" list (owner only: it holds phone numbers and mail ids).
+// Tutor Management: the Vantage "Tutor Master Dashboard" list. Owner and TMs can read it (no student data in it); only the owner loads it.
 const TUTORS_SEED = path.join(ROOT, 'seed', 'tutors.json');
 const TUTORS_FILE = path.join(DATA, 'tutors.json');
 function loadTutors() {
@@ -786,7 +786,7 @@ function loadTutors() {
 }
 const goodTutors = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every((r) => r && r.id && r.name);
 app.get('/api/tutors', (req, res) => {
-  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can open Tutor Management.' });
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const d = loadTutors();
   if (!d) return res.status(404).json({ error: 'No tutor data loaded yet.' });
   res.json(d);
