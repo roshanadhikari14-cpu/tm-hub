@@ -607,9 +607,22 @@ async function tutors() {
     if ($('#ttUp')) { ttInput(); $('#ttUp').onclick = () => ttInput().click(); }
     return;
   }
+  // leaves come live from Lighthouse; the page still works without them
+  let lv = null;
+  try {
+    lv = await api('/api/tutor-leaves');
+  } catch {}
   const rows = j.rows;
   const now = Date.now();
+  const lvDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const lvRange = (l) => (l.from === l.to ? lvDay(l.from) : lvDay(l.from) + ' to ' + lvDay(l.to));
+  const lvBy = {};
+  if (lv) for (const l of lv.leaves) (lvBy[l.tutorId] = lvBy[l.tutorId] || []).push(l);
+  const weekEnd = lv ? new Date(Date.parse(lv.today + 'T00:00:00Z') + 7 * 86400000).toISOString().slice(0, 10) : '';
   for (const r of rows) {
+    const mine = lvBy[String(r.id)] || [];
+    r._lvNow = lv ? mine.find((l) => l.from <= lv.today && l.to >= lv.today) || null : null;
+    r._lvSoon = lv ? mine.find((l) => l.from > lv.today && l.from <= weekEnd) || null : null;
     r._join = ttDate(r.joined);
     r._days = isNaN(r._join) ? null : Math.floor((now - r._join) / 86400000);
     r._leaving = r.resigned === 'Yes' || !!r.leaving;
@@ -638,11 +651,13 @@ async function tutors() {
       <button class="btn btn-ghost" id="ttCsv" type="button">⬇ CSV</button>
     </div>
     <div class="rn-chips" id="ttSum"></div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Tutor', 'name', ttState)}<th>Contact</th>${thSort('Subject and classes', 'subject', ttState)}${thSort('City · Language', 'city', ttState)}${thSort('Joined', 'joined', ttState)}${thSort('Tutor manager', 'tm', ttState)}${thSort('Resignation', 'leave', ttState)}</tr></thead><tbody id="ttBody"></tbody></table></div></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Tutor', 'name', ttState)}<th>Contact</th>${thSort('Subject and classes', 'subject', ttState)}${thSort('City · Language', 'city', ttState)}${thSort('Joined', 'joined', ttState)}${thSort('Tutor manager', 'tm', ttState)}${thSort('Resignation', 'leave', ttState)}${thSort('Leave today', 'lv', ttState)}</tr></thead><tbody id="ttBody"></tbody></table></div></div>
     <div id="ttMore" style="margin:12px 0"></div>`;
   const QUICK = {
     all: () => true,
     leaving: (r) => r._leaving,
+    onleave: (r) => !!r._lvNow,
+    soon: (r) => !!r._lvSoon,
     fresh: (r) => r._days != null && r._days <= 30,
     training: (r) => r.type === 'in_training',
     both: (r) => /,/.test(r.subject),
@@ -663,7 +678,7 @@ async function tutors() {
     if (ttState.col) {
       const key = {
         name: (r) => r.name, subject: (r) => r.subject + ' ' + r.grade, city: (r) => r.city, joined: (r) => r._join || 0,
-        tm: (r) => r.tm || '~', leave: (r) => (r._leaving ? (r.leaving === 'Overdue' ? 3 : 2) : 0),
+        tm: (r) => r.tm || '~', leave: (r) => (r._leaving ? (r.leaving === 'Overdue' ? 3 : 2) : 0), lv: (r) => (r._lvNow ? 2 : r._lvSoon ? 1 : 0),
       }[ttState.col];
       return l.slice().sort((a, b) => ttState.dir * cmpVal(key(a), key(b)) || a.name.localeCompare(b.name));
     }
@@ -676,6 +691,13 @@ async function tutors() {
     const left = r.daysLeft === '' ? '' : Number(r.daysLeft) < 0 ? Math.abs(Number(r.daysLeft)) + ' days past last day' : r.daysLeft + ' days to last day';
     return `<span class="ptag ${cls}">${esc(r.leaving || 'Resigned')}</span><br><small>Last day ${esc(r.lwdRec || r.lwd || '—')}${left ? ' · ' + esc(left) : ''}</small><br><small style="color:var(--ink-3)">${esc(r.rtype)}${r.notice ? ' · notice ' + (r.notice === 'Yes' ? 'served' : 'not served') : ''}</small>${r.rnote ? '<br><small>' + esc(r.rnote) + '</small>' : ''}`;
   };
+  const lvCell = (r) => {
+    if (!lv) return '<small style="color:var(--ink-3)">Leaves unavailable</small>';
+    const n = r._lvNow;
+    const x = n || r._lvSoon;
+    if (!x) return '<small style="color:var(--ink-3)">—</small>';
+    return (n ? '<span class="ptag amber">On leave today</span>' : '<span class="ptag">Leave coming up</span>') + '<br><small>' + esc(lvRange(x)) + ' · ' + esc(x.type) + '</small>' + (x.remarks ? '<br><small style="color:var(--ink-3)">' + esc(x.remarks.length > 90 ? x.remarks.slice(0, 89) + '…' : x.remarks) + '</small>' : '');
+  };
   const paint = () => {
     const l = filtered();
     const shown = l.slice(0, ttState.limit);
@@ -684,6 +706,7 @@ async function tutors() {
     $('#ttSum').innerHTML =
       chip('all', 'blue', 'tutors', base.length) +
       chip('leaving', 'red', 'leaving or resigned', base.filter(QUICK.leaving).length) +
+      (lv ? chip('onleave', 'amber', 'on leave today', base.filter(QUICK.onleave).length) + chip('soon', '', 'on leave in the next 7 days', base.filter(QUICK.soon).length) : '') +
       chip('fresh', 'ok', 'joined in last 30 days', base.filter(QUICK.fresh).length) +
       chip('training', 'amber', 'in training', base.filter(QUICK.training).length) +
       chip('both', '', 'teach Maths and Science', base.filter(QUICK.both).length) +
@@ -701,7 +724,8 @@ async function tutors() {
         <td style="min-width:140px">${esc(r.city) || '<small style="color:var(--ink-3)">—</small>'}<br><small style="color:var(--ink-3)">${esc(r.lang)}</small></td>
         <td style="white-space:nowrap">${esc(r.joined)}<br><small style="color:var(--ink-3)">${esc(tenure(r._days))}${r.handover ? ' · handover ' + esc(r.handover) : ''}</small></td>
         <td style="min-width:150px">${r.tm ? '<b>' + esc(r.tm) + '</b>' : '<small style="color:var(--ink-3)">Not assigned</small>'}<br><small style="color:var(--ink-3)">${esc(r.stm)}</small></td>
-        <td style="min-width:200px">${resCell(r)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No tutor matches</td></tr>';
+        <td style="min-width:200px">${resCell(r)}</td>
+        <td style="min-width:190px">${lvCell(r)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No tutor matches</td></tr>';
     $('#ttMore').innerHTML = l.length > shown.length ? `<button class="btn btn-ghost" id="ttAll">Show all ${l.length}</button>` : `<span class="note">${l.length} tutor${l.length === 1 ? '' : 's'}</span>`;
     if ($('#ttAll')) $('#ttAll').onclick = () => ((ttState.limit = 9999), paint());
   };
@@ -736,7 +760,7 @@ async function tutors() {
   $('#ttClear').onclick = () => { ttState = ttBlank(); tutors(); };
   $('#ttCsv').onclick = () => {
     const l = filtered();
-    const cols = [['Tutor ID', (r) => r.id], ['Tutor', (r) => r.name], ['Mobile', (r) => r.mobile], ['Mail', (r) => r.email], ['Type', (r) => r._type], ['Subject', (r) => r.subject], ['Primary class', (r) => r.grade], ['Other classes', (r) => r.grades2], ['Language', (r) => r.lang], ['City', (r) => r.city], ['Joined', (r) => r.joined], ['Handover', (r) => r.handover], ['Tutor manager', (r) => r.tm], ['Sr tutor manager', (r) => r.stm], ['Leaving status', (r) => r.leaving], ['Last working day', (r) => r.lwdRec || r.lwd], ['Resignation type', (r) => r.rtype], ['Resignation note', (r) => r.rnote]];
+    const cols = [['Tutor ID', (r) => r.id], ['Tutor', (r) => r.name], ['Mobile', (r) => r.mobile], ['Mail', (r) => r.email], ['Type', (r) => r._type], ['Subject', (r) => r.subject], ['Primary class', (r) => r.grade], ['Other classes', (r) => r.grades2], ['Language', (r) => r.lang], ['City', (r) => r.city], ['Joined', (r) => r.joined], ['Handover', (r) => r.handover], ['Tutor manager', (r) => r.tm], ['Sr tutor manager', (r) => r.stm], ['Leaving status', (r) => r.leaving], ['Last working day', (r) => r.lwdRec || r.lwd], ['Resignation type', (r) => r.rtype], ['Resignation note', (r) => r.rnote], ['Leave today', (r) => (r._lvNow ? lvRange(r._lvNow) + ' ' + r._lvNow.type : '')], ['Leave in next 7 days', (r) => (r._lvSoon ? lvRange(r._lvSoon) + ' ' + r._lvSoon.type : '')]];
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const csv = [cols.map((c) => q(c[0])).join(','), ...l.map((r) => cols.map((c) => q(c[1](r))).join(','))].join('\n');
     const a = document.createElement('a');

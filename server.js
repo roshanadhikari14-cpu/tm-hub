@@ -16,6 +16,7 @@ const auth = require('./lib/auth');
 const persist = require('./lib/persist');
 const Remarks = require('./lib/ptmRemarks');
 const PRem = require('./lib/ptmReminders');
+const TutorLeaves = require('./lib/tutorLeaves');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
 const Access = require('./lib/access');
@@ -792,6 +793,15 @@ app.get('/api/tutors', (req, res) => {
   if (!d) return res.status(404).json({ error: 'No tutor data loaded yet.' });
   res.json(d);
 });
+// Tutor leaves: live from Lighthouse (leaves that have not ended yet, newest start first)
+app.get('/api/tutor-leaves', async (req, res) => {
+  if (!['owner', 'tm', 'viewer'].includes(req.role)) return res.status(403).json({ error: 'Not allowed.' });
+  try {
+    res.json(await TutorLeaves.load(!!req.query.fresh));
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 app.post('/api/tutors/import', (req, res) => {
   if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can load tutor data.' });
   const b = req.body || {};
@@ -1011,6 +1021,7 @@ app.get('/api/students.csv', async (req, res) => {
 
 app.post('/api/refresh', async (req, res) => {
   try {
+    TutorLeaves.bust();
     const A = await refresh();
     res.json({ ok: true, errors: A.errors, at: A.fetchedAt });
   } catch (e) {
