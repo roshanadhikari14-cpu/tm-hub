@@ -858,6 +858,16 @@ app.get('/api/students-all', async (req, res) => {
     l.push({ date: m.date, minutes: m.parentMinutes, tm: tmOf(m.host) });
     byStudent.set(Number(m.studentId), l);
   }
+  // last connected parent call with its length (older ones fall back to Lighthouse's "last contact" time, no length)
+  let calls = null;
+  try {
+    calls = await LastCalls.lastCalls(21);
+  } catch {}
+  const callOf = (s) => {
+    const c = calls && calls[s.id];
+    if (c) return { at: c.at, seconds: c.seconds, incoming: c.incoming };
+    return s.lastContact ? { at: s.lastContact, seconds: null, incoming: null } : null;
+  };
   const idx = repIndex();
   const rows = [];
   for (const m of tms) {
@@ -867,7 +877,7 @@ app.get('/api/students-all', async (req, res) => {
       rows.push({
         id: s.id, name: s.name, grade: s.grade, school: s.school, batch: s.batch, level: s.level, oneOnOne: s.oneOnOne, lapsed: s.lapsed,
         joinedAt: s.joinedAt, renewal: s.renewal, greenPct: s.greenPct, processPct: s.processPct, improvementPct: s.improvementPct,
-        lastContact: s.lastContact, attPct: a.regHeld ? Math.round((100 * a.regAttended) / a.regHeld) : null, streak: a.streak || 0,
+        lastContact: s.lastContact, lastCall: callOf(s), attPct: a.regHeld ? Math.round((100 * a.regAttended) / a.regHeld) : null, streak: a.streak || 0,
         tm: m.name,
         ptms: (byStudent.get(Number(s.id)) || []).sort((x, y) => String(y.date).localeCompare(String(x.date))),
         reports: (idx[String(s.id)] || []).map((r) => ({ id: r.id, month: r.month, at: r.at, window: r.window })),

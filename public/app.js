@@ -277,6 +277,16 @@ function bindSort(table, st, repaint) {
   });
 }
 const cmpVal = (x, y) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
+// "24 Nov, 12:42 pm / 5 min 24 sec / yesterday" for the last connected parent call
+function lastCallHtml(c) {
+  if (!c) return '<small style="color:var(--ink-3)">No connected call found</small>';
+  const when = new Date(c.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+  const days = istDaysAgo(c.at);
+  const ago = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
+  const sec = c.seconds;
+  const dur = sec == null ? 'length not available' : sec < 60 ? sec + ' sec' : Math.floor(sec / 60) + ' min ' + (sec % 60 ? (sec % 60) + ' sec' : '');
+  return '<b>' + esc(when) + '</b><br><small>' + esc(dur) + (c.incoming ? ' · parent called' : '') + '</small><br><small style="color:' + (days > 7 ? 'var(--red)' : 'var(--ink-3)') + '">' + ago + '</small>';
+}
 // ---------- Renewals: the Vantage renewal list with filters ----------
 const rnBlank = () => ({ q: '', tm: [], office: [], status: [], at: [], school: [], grade: [], band: [], rtype: [], ptm: [], quick: '', rem: false, sort: 'att', col: '', dir: 1, limit: 150 });
 let rnState = rnBlank();
@@ -840,7 +850,7 @@ async function students() {
       <a class="btn btn-ghost" href="/api/students.csv${owner ? '' : ''}" download>⬇ CSV</a>
     </div>
     <div class="note" style="margin:-6px 0 12px">PTMs done between ${esc(j.from)} and ${esc(j.to)}, with the parent’s time in the meeting. ${j.error ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.error)}</span>` : ''}</div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th>${owner ? '<th>TM</th>' : ''}<th>Parent${owner ? ' / phone' : ''}</th><th>Learning</th><th>PTMs done (30 days)</th><th>PTM report</th></tr></thead><tbody id="stBody"></tbody></table></div><div class="actions" id="stMore" style="justify-content:center;padding:10px"></div></div>`;
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th class="num">#</th><th>Student</th>${owner ? '<th>TM</th>' : ''}<th>Parent${owner ? ' / phone' : ''}</th><th>Learning</th><th>Last parent call</th><th>PTMs done (30 days)</th><th>PTM report</th></tr></thead><tbody id="stBody"></tbody></table></div><div class="actions" id="stMore" style="justify-content:center;padding:10px"></div></div>`;
   const shortDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const paint = () => {
     const q = stState.q.trim().toLowerCase();
@@ -860,10 +870,11 @@ async function students() {
           ${owner ? `<td>${esc(r.tm.split(' ')[0])}</td>` : ''}
           <td class="par-cell">${parentCell(r.id)}</td>
           <td style="white-space:nowrap"><small style="color:var(--ink-3)">Green</small> <b>${r.greenPct ?? '—'}${typeof r.greenPct === 'number' ? '%' : ''}</b><br><small style="color:var(--ink-3)">Attendance</small> <b>${r.attPct ?? '—'}${r.attPct != null ? '%' : ''}</b></td>
+          <td style="min-width:150px;white-space:nowrap">${lastCallHtml(r.lastCall)}</td>
           <td>${ptm}</td>
           <td><button class="btn btn-ghost st-rep" data-id="${r.id}" style="padding:6px 10px;font-size:12.5px">📄 Create report</button><div style="margin-top:5px">${reps}</div></td></tr>`;
       })
-      .join('') || '<tr><td colspan="7" class="empty">No student matches</td></tr>';
+      .join('') || '<tr><td colspan="8" class="empty">No student matches</td></tr>';
     $('#stMore').innerHTML = list.length > shown.length ? `<button class="btn btn-ghost" id="stAll">Show all ${list.length}</button>` : `<span class="note">${list.length} student${list.length === 1 ? '' : 's'}</span>`;
     const all = $('#stAll');
     if (all) all.onclick = () => ((stState.limit = 9999), paint());
