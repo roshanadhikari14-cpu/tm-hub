@@ -1119,6 +1119,8 @@ function startGoogle(req, res, mode) {
 }
 // ---------- Access requests ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// the confirmation a person gets when access is approved
+const accessMail = (url) => `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;color:#1d2b2c;line-height:1.55"><h2 style="margin:0 0 10px">You now have access to Lighthouse V2</h2><p>Hi, your access to <b>Lighthouse V2</b> has been approved.</p><p>Open the website and sign in with your UPRIO Google account:</p><p><a href="${url}" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Open Lighthouse V2</a></p><p style="font-size:13px;color:#555">${url}</p></div>`;
 async function mailTo(to, subject, html) {
   const me = senderAddr();
   if (G.account()) return G.send({ fromName: sender().name, to, subject, html });
@@ -1153,18 +1155,27 @@ app.post('/auth/decide', express.urlencoded({ extended: false }), async (req, re
   if (!p || !p.e) return res.status(400).send(decidePage('<p>This link has expired or is not valid.</p>'));
   const act = (req.body || {}).a === 'deny' ? 'deny' : 'approve';
   Access.decide(p.e, act, ownerEmail());
-  if (act === 'approve') mailTo(p.e, 'You now have access to Lighthouse V2', `<p>Hi, your access to Lighthouse V2 was approved. Sign in with your UPRIO Google account: <a href="${baseUrl(req)}">${baseUrl(req)}</a></p>`).catch(() => {});
+  if (act === 'approve') mailTo(p.e, 'You now have access to Lighthouse V2', accessMail(baseUrl(req))).catch(() => {});
   res.send(decidePage(`<div style="font-size:40px">${act === 'approve' ? '✅' : '🚫'}</div><p>${esc(p.e)} was ${act === 'approve' ? 'approved' : 'denied'}.</p>`));
 });
 // Settings → Access (owner only; see the guard near the top)
 app.get('/api/access', (req, res) => res.json(Access.list()));
-app.post('/api/access/decide', (req, res) => {
+app.post('/api/access/decide', async (req, res) => {
   const b = req.body || {};
   const email = String(b.email || '').trim().toLowerCase();
   if (!G.allowed(email)) return res.status(400).json({ error: `Use an @${G.DOMAIN} address.` });
   if (!['approve', 'deny', 'remove'].includes(b.action)) return res.status(400).json({ error: 'Unknown action.' });
   Access.decide(email, b.action, req.user || 'owner');
-  res.json(Access.list());
+  let mail = '';
+  if (b.action === 'approve') {
+    try {
+      await mailTo(email, 'You now have access to Lighthouse V2', accessMail(baseUrl(req)));
+      mail = 'sent';
+    } catch (e) {
+      mail = 'Access was given, but the confirmation mail could not be sent: ' + e.message;
+    }
+  }
+  res.json({ ...Access.list(), mail });
 });
 
 // Log in to the hub.

@@ -1514,8 +1514,9 @@ document.addEventListener('click', async (e) => {
   }
   b.disabled = true;
   try {
-    await api('/api/access/decide', { body: { email, action: b.dataset.acc } });
-    toast(b.dataset.acc === 'approve' ? 'Approved' : b.dataset.acc === 'deny' ? 'Denied' : 'Removed', 'ok');
+    const dec = await api('/api/access/decide', { body: { email, action: b.dataset.acc } });
+    if (b.dataset.acc === 'approve') toast(dec.mail === 'sent' ? 'Approved. Confirmation mail with the website link sent to ' + email : dec.mail || 'Approved', dec.mail === 'sent' ? 'ok' : 'err');
+    else toast(b.dataset.acc === 'deny' ? 'Denied' : 'Removed', 'ok');
     S.status = await api('/api/status');
     paintChrome();
     paintAccess();
