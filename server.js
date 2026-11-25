@@ -786,7 +786,7 @@ function loadTutors() {
 }
 const goodTutors = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every((r) => r && r.id && r.name);
 app.get('/api/tutors', (req, res) => {
-  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  if (!['owner', 'tm', 'viewer'].includes(req.role)) return res.status(403).json({ error: 'Not allowed.' });
   const d = loadTutors();
   if (!d) return res.status(404).json({ error: 'No tutor data loaded yet.' });
   res.json(d);
