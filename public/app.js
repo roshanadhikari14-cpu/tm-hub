@@ -355,6 +355,12 @@ async function renewals() {
     return;
   }
   const rows = j.rows;
+  // the list is drawn at once; live call details join in a moment later
+  api('/api/last-calls').then((c) => {
+    for (const r of rows) if (c.map[r.id]) r.lastCall = { ...c.map[r.id], src: 'call' };
+    const b = document.getElementById('rnBody');
+    if (location.hash.startsWith('#/renewals') && b) b.dispatchEvent(new Event('repaint'));
+  }).catch(() => {});
   // the PTM objects double as "meetings" for the shared remark editor
   for (const r of rows) if (r.ptm) Object.assign(r.ptm, { tm: r.tm, student: r.name });
   window.__ptmMeetings = rows.filter((r) => r.ptm).map((r) => r.ptm);
@@ -477,6 +483,7 @@ async function renewals() {
     if (all) all.onclick = () => ((rnState.limit = 9999), paint());
   };
   paint();
+  $('#rnBody').addEventListener('repaint', () => paint());
   const bind = (id, key, ev) => {
     const el = $('#' + id);
     if (el) el[ev || 'onchange'] = (e) => {
@@ -836,6 +843,11 @@ async function students() {
     return;
   }
   stRows = j.rows;
+  // the page is already drawn; live call details join in a moment later
+  api('/api/last-calls').then((c) => {
+    for (const r of stRows) if (c.map[r.id]) r.lastCall = c.map[r.id];
+    if (location.hash.startsWith('#/students') && document.getElementById('stBody')) document.getElementById('stBody').dispatchEvent(new Event('repaint'));
+  }).catch(() => {});
   const owner = j.role === 'owner';
   const tmNames = [...new Set(stRows.map((r) => r.tm))];
   const m = reportMonths();
@@ -887,6 +899,7 @@ async function students() {
     if (all) all.onclick = () => ((stState.limit = 9999), paint());
   };
   paint();
+  $('#stBody').addEventListener('repaint', () => paint());
   bindSort($('#stBody').closest('table'), stState, () => paint());
   $('#stQ').oninput = (e) => ((stState.q = e.target.value), (stState.limit = 120), paint());
   const sel = $('#stTm');

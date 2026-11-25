@@ -660,10 +660,16 @@ async function renewalPtms() {
   const from = addDays(today, -19);
   const key = `ren|${from}|${today}`;
   let hit = ptmRanges.get(key);
-  if (!hit || Date.now() - hit.at > 3 * 60 * 1000) {
-    hit = { at: Date.now(), key, data: await ptmMeetings(from, today) };
-    ptmRanges.set(key, hit);
+  const loadIt = async () => {
+    const h = { at: Date.now(), key, data: await ptmMeetings(from, today) };
+    ptmRanges.set(key, h);
     if (ptmRanges.size > 12) ptmRanges.delete(ptmRanges.keys().next().value);
+    return h;
+  };
+  if (!hit) hit = await loadIt();
+  else if (Date.now() - hit.at > 3 * 60 * 1000 && !hit.busy) {
+    hit.busy = true; // the saved list is used at once; a fresh one is ready for the next view
+    loadIt().catch(() => (hit.busy = false));
   }
   const remarks = Remarks.load();
   const stateOf = (m) => {
@@ -714,10 +720,7 @@ app.get('/api/renewals', async (req, res) => {
     return x ? x.name : n;
   };
   // last connected parent call with its length; older ones fall back to Lighthouse's "last contact" time (no length)
-  let calls = null;
-  try {
-    calls = await LastCalls.lastCalls(21);
-  } catch {}
+  const calls = LastCalls.instant();
   const contact = {};
   const A = loadLatest();
   for (const list of Object.values((A && A.students) || {})) for (const x of list || []) if (x.lastContact) contact[String(x.id)] = x.lastContact;
@@ -834,6 +837,26 @@ app.post('/api/cron/tutors-push', express.text({ type: '*/*', limit: '8mb' }), (
   res.json({ ok: true, count: b.rows.length });
 });
 
+// Last connected parent calls, read live (the pages draw first and fill this in a moment later)
+app.get('/api/last-calls', async (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  try {
+    const all = await LastCalls.lastCalls(21);
+    let out = all;
+    if (req.role === 'tm') {
+      const A = loadLatest();
+      const mine = new Set();
+      for (const m of team()) if (m.name === req.myTm) for (const x of (A && A.students && A.students[M.lhName(m)]) || []) mine.add(String(x.id));
+      out = {};
+      for (const k of Object.keys(all)) if (mine.has(k)) out[k] = all[k];
+    }
+    const map = {};
+    for (const k of Object.keys(out)) map[k] = { at: out[k].at, seconds: out[k].seconds, incoming: out[k].incoming };
+    res.json({ map });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 // All students the person may see, with this month's PTMs (done, last 30 days) and their report history.
 let ptm30 = { at: 0, data: null };
 app.get('/api/students-all', async (req, res) => {
@@ -843,7 +866,12 @@ app.get('/api/students-all', async (req, res) => {
   const today = istDate();
   let err = '';
   try {
-    if (!ptm30.data || Date.now() - ptm30.at > 3 * 60 * 1000) ptm30 = { at: Date.now(), data: await ptmMeetings(addDays(today, -29), today) };
+    const load30 = async () => (ptm30 = { at: Date.now(), data: await ptmMeetings(addDays(today, -29), today) });
+    if (!ptm30.data) await load30();
+    else if (Date.now() - ptm30.at > 3 * 60 * 1000 && !ptm30.busy) {
+      ptm30.busy = true;
+      load30().catch(() => (ptm30.busy = false)); // stale list is shown at once, the fresh one is ready for the next view
+    }
   } catch (e) {
     err = e.message;
   }
@@ -859,10 +887,7 @@ app.get('/api/students-all', async (req, res) => {
     byStudent.set(Number(m.studentId), l);
   }
   // last connected parent call with its length (older ones fall back to Lighthouse's "last contact" time, no length)
-  let calls = null;
-  try {
-    calls = await LastCalls.lastCalls(21);
-  } catch {}
+  const calls = LastCalls.instant();
   const callOf = (s) => {
     const c = calls && calls[s.id];
     if (c) return { at: c.at, seconds: c.seconds, incoming: c.incoming };
@@ -1035,7 +1060,7 @@ app.post('/api/refresh', async (req, res) => {
     LastCalls.bust();
     ptmRanges.clear();
     Object.assign(ptmCache, { at: 0, key: '', data: null });
-    ptm30 = { at: 0, data: null };
+    ptm30.at = 0; // keep the old list on screen-time, a fresh one loads in the background
     const A = await refresh();
     res.json({ ok: true, errors: A.errors, at: A.fetchedAt });
   } catch (e) {
