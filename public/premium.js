@@ -32,6 +32,7 @@
     sliders: P('<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'),
     repeat: P('<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>'),
     book: P('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5V21h16"/>'),
+    badge: P('<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.5 16.5c.6-1.8 1.9-2.6 3.5-2.6s2.9.8 3.5 2.6M14.5 9.5H18M14.5 13H18"/>'),
     handshake: P('<path d="M11 17l2 2a2 2 0 0 0 3-3M14 14l2.5 2.5a2 2 0 0 0 3-3L15 9l-3 1-2-2-4 4 5 5a2 2 0 0 0 3 0"/><path d="M3 11l4-4M17 7l4 4"/>'),
   };
   const MAP = {
@@ -39,7 +40,7 @@
     '✉': 'mail', '🧪': 'flask', '🌅': 'sun', '⏱️': 'timer', '⏱': 'timer', '🌙': 'moon', '📄': 'file', '🔊': 'volume', '🎙': 'mic', '🗣': 'mic',
     '🎥': 'video', '📅': 'calendar', '🗓': 'calendar', '✅': 'check', '📈': 'trend', '🚀': 'rocket', '💬': 'chat', '🚫': 'ban', '📞': 'phone', '☎': 'phone', '⏰': 'clock', '🔁': 'repeat', '📚': 'book', '📖': 'book',
   };
-  const NAV = { dashboard: 'grid', team: 'users', tasks: 'columns', ptm: 'handshake', students: 'grad', renewals: 'repeat', reports: 'mail', schedule: 'clock', settings: 'sliders' };
+  const NAV = { dashboard: 'grid', team: 'users', tasks: 'columns', ptm: 'handshake', students: 'grad', renewals: 'repeat', tutors: 'badge', reports: 'mail', schedule: 'clock', settings: 'sliders' };
   const emojiRe = new RegExp('(' + Object.keys(MAP).sort((a, b) => b.length - a.length).join('|') + ')\uFE0F?', 'g');
 
   function nav() {
