@@ -445,3 +445,6 @@ th.sortable .sa { display: inline-block; margin-left: 5px; font-size: 10px; opac
 th.sortable:hover .sa { opacity: 0.8; }
 th.sortable.on .sa { opacity: 1; color: var(--brand, #2b2f8f); }
 th.sortable:hover { color: var(--ink, #1d2b2c); }
+
+/* Team score tile: keep the number centred inside the ring (the tile styles its own bold text) */
+.ts .ts-ring .ring b { display: grid; place-items: center; position: absolute; inset: 0; font-size: 16px; font-weight: 700; line-height: 1; color: var(--ink, #1d2b2c); }
