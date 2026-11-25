@@ -34,8 +34,59 @@ function cachedApi(path, ttl = 120000) {
   p.catch(() => apiCache.delete(path));
   return p;
 }
+// Pages that open at once: the last answer (kept on this device for this person) is drawn straight away, the fresh
+// one is fetched behind it and the page is drawn again only if something changed (never while someone is typing).
+const swrMem = new Map();
+const swrKey = (path) => 'swr:' + ((S.status && S.status.user) || '') + ':' + path;
+async function swrFetch(path, rerender, routeHash) {
+  const key = swrKey(path);
+  let raw = swrMem.get(key);
+  if (!raw) {
+    try {
+      raw = localStorage.getItem(key);
+    } catch {}
+  }
+  const fresh = api(path).then((j) => {
+    const s = JSON.stringify(j);
+    const changed = Boolean(raw) && s !== raw;
+    swrMem.set(key, s);
+    try {
+      localStorage.setItem(key, s);
+    } catch {}
+    const typing = document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    const open = document.querySelector('.ms-pop:not([hidden])');
+    if (changed && rerender && !typing && !open && location.hash.startsWith(routeHash)) rerender();
+    return j;
+  });
+  if (raw) {
+    fresh.catch(() => {});
+    try {
+      return JSON.parse(raw);
+    } catch {}
+  }
+  return fresh;
+}
+// After sign-in the main lists are fetched quietly, so the first visit to a page is already instant.
+async function swrWarm() {
+  const st = S.status;
+  if (!st || document.hidden) return;
+  const paths = st.role === 'viewer' ? ['/api/tutors', '/api/tutor-leaves'] : ['/api/students-all', '/api/renewals', '/api/tutors', '/api/tutor-leaves'];
+  for (const p of paths) {
+    try {
+      const j = await api(p);
+      const s = JSON.stringify(j);
+      swrMem.set(swrKey(p), s);
+      localStorage.setItem(swrKey(p), s);
+    } catch {}
+  }
+}
 // Shown instead of the hub when it is on the internet and nobody is signed in.
 function showLogin(j) {
+  // signed out: forget the saved page data of this device
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('swr:')) localStorage.removeItem(k);
+  } catch {}
+  swrMem.clear();
   if ($('#loginScreen')) return;
   const d = document.createElement('div');
   d.id = 'loginScreen';
@@ -344,7 +395,7 @@ async function renewals() {
   view.innerHTML = '<div class="card empty">Loading renewals…</div>';
   let j;
   try {
-    j = await api('/api/renewals');
+    j = await swrFetch('/api/renewals', renewals, '#/renewals');
   } catch (err) {
     view.innerHTML = `<div class="card"><h3>No renewal data loaded</h3><p class="note">${esc(err.message)}</p>${rnIsOwner() ? '<button class="btn btn-primary" id="rnUp" type="button">⬆ Upload renewal data (.json)</button>' : ''}</div>`;
     const up = $('#rnUp');
@@ -618,7 +669,7 @@ async function tutors() {
   view.innerHTML = '<div class="card empty">Loading tutors…</div>';
   let j;
   try {
-    j = await api('/api/tutors');
+    j = await swrFetch('/api/tutors', tutors, '#/tutors');
   } catch (err) {
     view.innerHTML = `<div class="card"><h3>No tutor data loaded</h3><p class="note">${esc(err.message)}</p>${rnIsOwner() ? '<button class="btn btn-primary" id="ttUp" type="button">⬆ Upload tutor data (.csv)</button>' : ''}</div>`;
     if ($('#ttUp')) { ttInput(); $('#ttUp').onclick = () => ttInput().click(); }
@@ -627,7 +678,7 @@ async function tutors() {
   // leaves come live from Lighthouse; the page still works without them
   let lv = null;
   try {
-    lv = await api('/api/tutor-leaves');
+    lv = await swrFetch('/api/tutor-leaves', tutors, '#/tutors');
   } catch {}
   const rows = j.rows;
   const now = Date.now();
@@ -837,7 +888,7 @@ async function students() {
   view.innerHTML = '<div class="card empty">Loading students…</div>';
   let j;
   try {
-    j = await api('/api/students-all');
+    j = await swrFetch('/api/students-all', students, '#/students');
   } catch (err) {
     view.innerHTML = `<div class="card"><h3>Could not load students</h3><p class="note">${esc(err.message)}</p></div>`;
     return;
@@ -1760,6 +1811,8 @@ async function settings() {
 // ---------- start ----------
 view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
 route();
+setTimeout(swrWarm, 2500);
+setInterval(swrWarm, 5 * 60 * 1000);
 setInterval(async () => {
   // Quietly keep the sidebar status current.
   try {
