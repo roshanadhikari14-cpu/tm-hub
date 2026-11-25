@@ -260,8 +260,25 @@ const istDaysAgo = (iso) => {
   const day = (d) => Date.parse(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00Z');
   return Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
 };
+// Click-to-sort column headers: an arrow shows on hover, a click sorts one way and the next click the other way
+const thSort = (label, col, st, cls) => `<th class="sortable${cls ? ' ' + cls : ''}${st.col === col ? ' on' : ''}" data-col="${col}" title="Sort by ${esc(label)}">${label}<span class="sa">${st.col === col ? (st.dir > 0 ? '▲' : '▼') : '⇅'}</span></th>`;
+function bindSort(table, st, repaint) {
+  table.querySelectorAll('th.sortable').forEach((th) => {
+    th.onclick = () => {
+      st.dir = st.col === th.dataset.col ? -st.dir : 1;
+      st.col = th.dataset.col;
+      table.querySelectorAll('th.sortable').forEach((h) => {
+        const on = h.dataset.col === st.col;
+        h.classList.toggle('on', on);
+        h.querySelector('.sa').textContent = on ? (st.dir > 0 ? '▲' : '▼') : '⇅';
+      });
+      repaint();
+    };
+  });
+}
+const cmpVal = (x, y) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
 // ---------- Renewals: the Vantage renewal list with filters ----------
-const rnBlank = () => ({ q: '', tm: [], office: [], status: [], at: [], school: [], grade: [], band: [], rtype: [], ptm: [], quick: '', rem: false, sort: 'att', limit: 150 });
+const rnBlank = () => ({ q: '', tm: [], office: [], status: [], at: [], school: [], grade: [], band: [], rtype: [], ptm: [], quick: '', rem: false, sort: 'att', col: '', dir: 1, limit: 150 });
 let rnState = rnBlank();
 // tick-box dropdown: pick several values at once
 function rnMs(key, label, options, cur) {
@@ -356,7 +373,7 @@ async function renewals() {
     </div>
     <div class="rn-chips" id="rnSum"></div>
     <div class="note" style="margin:0 0 10px">PTM status covers ${esc(j.ptmFrom || '')} to ${esc(j.ptmTo || '')} (last 15 days). ${j.ptmError ? `<span style="color:var(--red)">PTM data could not load: ${esc(j.ptmError)}</span>` : ''}</div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Student</th><th>School</th><th>TM</th><th>Office</th><th>Status</th><th>Renewal</th><th>Last parent call</th><th>PTM (last 15 days)</th><th>Remarks</th></tr></thead><tbody id="rnBody"></tbody></table></div></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Student', 'name', rnState)}${thSort('School', 'school', rnState)}${thSort('TM', 'tm', rnState)}${thSort('Office', 'office', rnState)}${thSort('Status', 'status', rnState)}${thSort('Renewal', 'rtype', rnState)}${thSort('Last parent call', 'call', rnState)}${thSort('PTM (last 15 days)', 'ptm', rnState)}${thSort('Remarks', 'remarks', rnState)}</tr></thead><tbody id="rnBody"></tbody></table></div></div>
     <div id="rnMore" style="margin:12px 0"></div>`;
   const tagOf = (v, kind) => {
     if (!v) return '';
@@ -385,6 +402,16 @@ async function renewals() {
     );
     const num = (r) => (r.att === '' ? 999 : Number(r.att));
     const callT = (r) => (r.lastCall ? new Date(r.lastCall.at).getTime() : 0);
+    if (rnState.col) {
+      const RT = { '1st': 1, '2nd': 2, '3rd': 3, '3rd +': 4 };
+      const PR = ['completed', 'no_show', 'unmarked', 'live', 'upcoming', 'none'];
+      const key = {
+        name: (r) => r.name, school: (r) => r.school, tm: (r) => r.tm, office: (r) => r.office,
+        status: (r) => (r.status || '') + ' ' + (r.atStatus || ''), rtype: (r) => RT[r.rtype] || 0,
+        call: (r) => callT(r), ptm: (r) => PR.indexOf(rnPtmKey(r)), remarks: (r) => r.remarks || '',
+      }[rnState.col];
+      return l.slice().sort((a, b) => rnState.dir * cmpVal(key(a), key(b)) || a.name.localeCompare(b.name));
+    }
     return l.slice().sort((a, b) => (rnState.sort === 'call' ? callT(a) - callT(b) || a.name.localeCompare(b.name) : rnState.sort === 'name' ? a.name.localeCompare(b.name) : rnState.sort === 'tm' ? a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) : num(a) - num(b) || a.name.localeCompare(b.name)));
   };
   const callCell = (r) => {
@@ -443,6 +470,7 @@ async function renewals() {
   const bind = (id, key, ev) => {
     const el = $('#' + id);
     if (el) el[ev || 'onchange'] = (e) => {
+      if (key === 'sort') rnState.col = '';
       rnState[key] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       rnState.limit = 150;
       paint();
@@ -492,6 +520,7 @@ async function renewals() {
     document.addEventListener('click', () => $$('.ms-pop').forEach((p) => (p.hidden = true)));
   }
   bind('rnSort', 'sort');
+  bindSort($('.rn-tbl'), rnState, () => paint());
   rnEnsureInput();
   if ($('#rnUp')) $('#rnUp').onclick = rnUpload;
   $('#rnClear').onclick = () => {
@@ -511,7 +540,7 @@ async function renewals() {
 }
 // ---------- Tutor Management: the Vantage Tutor Master Dashboard list (owner only) ----------
 const TT_TYPE = { regular: 'Regular', in_training: 'In training', i2_coach: 'I2 coach', one_on_one: 'One on one', co_tutor: 'Co-tutor', demo: 'Demo', olympiad: 'Olympiad', bootcamp_tutor: 'Bootcamp', internal: 'Internal', non_primary_tutor: 'Non-primary' };
-const ttBlank = () => ({ q: '', stm: [], tm: [], type: [], subject: [], grade: [], city: [], lang: [], leave: [], quick: '', sort: 'name', limit: 150 });
+const ttBlank = () => ({ q: '', stm: [], tm: [], type: [], subject: [], grade: [], city: [], lang: [], leave: [], quick: '', sort: 'name', col: '', dir: 1, limit: 150 });
 let ttState = ttBlank();
 // a Vantage/portal CSV (quoted fields, commas inside) read into rows
 function ttCsv(text) {
@@ -609,7 +638,7 @@ async function tutors() {
       <button class="btn btn-ghost" id="ttCsv" type="button">⬇ CSV</button>
     </div>
     <div class="rn-chips" id="ttSum"></div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th><th>Tutor</th><th>Contact</th><th>Subject and classes</th><th>City · Language</th><th>Joined</th><th>Tutor manager</th><th>Resignation</th></tr></thead><tbody id="ttBody"></tbody></table></div></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl rn-tbl"><thead><tr><th class="num">#</th>${thSort('Tutor', 'name', ttState)}<th>Contact</th>${thSort('Subject and classes', 'subject', ttState)}${thSort('City · Language', 'city', ttState)}${thSort('Joined', 'joined', ttState)}${thSort('Tutor manager', 'tm', ttState)}${thSort('Resignation', 'leave', ttState)}</tr></thead><tbody id="ttBody"></tbody></table></div></div>
     <div id="ttMore" style="margin:12px 0"></div>`;
   const QUICK = {
     all: () => true,
@@ -631,6 +660,13 @@ async function tutors() {
         (skipQuick || !ttState.quick || QUICK[ttState.quick](r))
     );
     const by = { name: (a, b) => a.name.localeCompare(b.name), new: (a, b) => (b._join || 0) - (a._join || 0), old: (a, b) => (a._join || 9e15) - (b._join || 9e15), tm: (a, b) => a.tm.localeCompare(b.tm) || a.name.localeCompare(b.name) };
+    if (ttState.col) {
+      const key = {
+        name: (r) => r.name, subject: (r) => r.subject + ' ' + r.grade, city: (r) => r.city, joined: (r) => r._join || 0,
+        tm: (r) => r.tm || '~', leave: (r) => (r._leaving ? (r.leaving === 'Overdue' ? 3 : 2) : 0),
+      }[ttState.col];
+      return l.slice().sort((a, b) => ttState.dir * cmpVal(key(a), key(b)) || a.name.localeCompare(b.name));
+    }
     return l.slice().sort(by[ttState.sort] || by.name);
   };
   const tenure = (d) => (d == null ? '' : d < 31 ? d + ' days' : d < 365 ? Math.round(d / 30) + ' months' : (d / 365).toFixed(1) + ' years');
@@ -672,7 +708,8 @@ async function tutors() {
   paint();
   $('#ttQ').oninput = (e) => { ttState.q = e.target.value; ttState.limit = 150; paint(); };
   $('#ttSort').value = ttState.sort;
-  $('#ttSort').onchange = (e) => { ttState.sort = e.target.value; paint(); };
+  $('#ttSort').onchange = (e) => { ttState.sort = e.target.value; ttState.col = ''; paint(); };
+  bindSort($('#ttBody').closest('table'), ttState, () => paint());
   const msLabel = (box) => {
     const checked = [...box.querySelectorAll('input:checked')].map((i) => i.nextElementSibling.textContent);
     box.querySelector('.ms-btn span').textContent = !checked.length ? box.dataset.label : checked.length <= 2 ? checked.join(', ') : checked.length + ' selected';

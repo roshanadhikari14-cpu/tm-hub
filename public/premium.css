@@ -438,3 +438,10 @@ button.ts:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); bor
 .tm-card .ring-wrap .ring { background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18); }
 .tm-card .ring-wrap .ring b { color: #0f172a; }
 .tm-card .ring-wrap .ring .track { stroke: #e3e8f0; }
+
+/* sortable table headers: the arrow appears on hover, stays on the sorted column */
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable .sa { display: inline-block; margin-left: 5px; font-size: 10px; opacity: 0; transition: opacity 0.15s; color: var(--ink-3); }
+th.sortable:hover .sa { opacity: 0.8; }
+th.sortable.on .sa { opacity: 1; color: var(--brand, #2b2f8f); }
+th.sortable:hover { color: var(--ink, #1d2b2c); }
