@@ -929,6 +929,16 @@ async function tracker() {
     const past = tkDays(t.due, j.today);
     return `<span class="tk-due">Due ${tkDay(t.due)}${past > 0 ? ` · <b class="tk-red">${past} day${past === 1 ? '' : 's'} past</b>` : ''}</span>`;
   };
+  // predefined task: how many of its items are cleared, with the list behind a click
+  const autoBlock = (t) => {
+    const left = new Set(t.status === 'done' && t.doneBy === 'Automatic' ? [] : t.auto.left || t.auto.items.map((x) => x.id));
+    const total = t.auto.items.length;
+    const cleared = total - t.auto.items.filter((x) => left.has(x.id)).length;
+    const key = 'list:' + t.id;
+    return `<div class="tk-auto"><div class="tk-bar"><i style="width:${Math.round((100 * cleared) / total)}%"></i></div>
+      <button class="tk-link" data-tk="items">${cleared} of ${total} cleared · ${tkState.open.has(key) ? 'hide' : 'show'} list</button>
+      <ul class="tk-items" ${tkState.open.has(key) ? '' : 'hidden'}>${t.auto.items.map((x) => `<li class="${left.has(x.id) ? '' : 'ok'}"><span>${left.has(x.id) ? '○' : '✓'}</span><div>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div></li>`).join('')}</ul></div>`;
+  };
   const card = (t, i) => {
     const open = tkState.open.has(t.id);
     const fresh = !tkState.seen.has(t.id);
@@ -940,6 +950,7 @@ async function tracker() {
       <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>by ${esc(t.createdBy)}</small></div></div>
       <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
       ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
+      ${t.auto ? autoBlock(t) : ''}
       ${t.lane === 'today' && t.due === j.today ? '<p class="tk-small tk-now">Due today</p>' : ''}
       ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
       <div class="tk-actions">
@@ -986,6 +997,7 @@ async function tracker() {
     try {
       const r = await api('/api/tracker', { body });
       $('#modal').hidden = true;
+      if (r.skipped && r.skipped.length) toast('Assigned. Nothing pending for ' + r.skipped.join(', ') + ', so they got no task.', 'ok');
       if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
       else if (done) toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
       if (after) after();
@@ -1027,13 +1039,28 @@ async function tracker() {
   const newTask = () => {
     modal(
       '＋ Assign a task',
-      `<label>Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label>
+      `<label>Task type<select id="tkType"><option value="">My own task</option>${(j.categories || []).map((c) => `<option value="${c.key}">${esc(c.label)} (from Lighthouse)</option>`).join('')}</select></label><p class="tk-small" id="tkPending" hidden></p><label id="tkTitleRow">Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label>
        <div class="tk-lbl">Assign to <small>(pick one or more)</small> <button type="button" class="tk-btn" id="tkAll">Select all TMs</button></div><div class="tk-pick">${j.people.map((p, i) => `<label title="${esc(p.name)}"><input type="checkbox" name="tkTo" value="${esc(p.name)}" ${tkState.who && p.name === tkState.who ? 'checked' : ''}>${tkAvatar(p, p.name, 'lg')}<small>${esc(p.name.split(' ')[0])}</small></label>`).join('')}</div>
        <label>Due date<input id="tkDue" type="date" min="${j.today}" value="${j.today}"></label>${priorityField('Medium')}<p class="note">A mail goes to the person the task is assigned to.</p>`,
       'Assign and send mail',
-      () => send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignees: $$('input[name=tkTo]:checked').map((x) => x.value), due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
+      () => send({ action: 'create', category: $('#tkType').value, title: $('#tkTitle').value, details: $('#tkDetails').value, assignees: $$('input[name=tkTo]:checked').map((x) => x.value), due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
     );
     wireAll();
+    // a predefined type needs no title; show how much is pending for each person picked
+    const pending = () => {
+      const key = $('#tkType').value;
+      $('#tkTitleRow').hidden = Boolean(key);
+      const box = $('#tkPending');
+      box.hidden = !key;
+      if (!key) return;
+      const picked = $$('input[name=tkTo]:checked').map((x) => x.value);
+      box.textContent = !picked.length
+        ? 'Pick who it is for to see what is pending.'
+        : 'Pending now: ' + picked.map((n) => n.split(' ')[0] + ' ' + (j.counts[n] ? j.counts[n][key] : 'none')).join(', ') + '. The task completes itself when Lighthouse shows them cleared.' + (j.role === 'owner' ? '' : ' You can create these only for yourself.');
+    };
+    $('#tkType').onchange = pending;
+    $$('input[name=tkTo]').forEach((x) => x.addEventListener('change', pending));
+    $('#tkAll').addEventListener('click', pending);
   };
 
   function wire() {
@@ -1060,7 +1087,13 @@ async function tracker() {
       const el = btn.closest('.tk-card');
       const t = byId(el.dataset.id);
       const what = btn.dataset.tk;
-      if (what === 'notes') {
+      if (what === 'items') {
+        const key = 'list:' + t.id;
+        tkState.open[tkState.open.has(key) ? 'delete' : 'add'](key);
+        const list = el.querySelector('.tk-items');
+        list.hidden = !tkState.open.has(key);
+        btn.textContent = btn.textContent.replace(list.hidden ? 'hide' : 'show', list.hidden ? 'show' : 'hide');
+      } else if (what === 'notes') {
         const on = !tkState.open.has(t.id);
         tkState.open[on ? 'add' : 'delete'](t.id);
         btn.classList.toggle('on', on);

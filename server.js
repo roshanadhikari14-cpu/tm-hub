@@ -21,6 +21,7 @@ const DiskCache = require('./lib/diskCache');
 const ManualPtm = require('./lib/manualPtm');
 const TeamTasks = require('./lib/teamTasks');
 const TaskRem = require('./lib/taskReminders');
+const AutoTasks = require('./lib/autoTasks');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -646,7 +647,10 @@ async function sendTaskMail(t, url) {
   if (!t.assigneeEmail) return 'No mail address is known for ' + t.assignee + '.';
   const due = new Date(t.due + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f1b2d;max-width:600px;line-height:1.55"><p>Hi ${escHtml(t.assignee.split(' ')[0])},</p><p><b>${escHtml(t.createdBy)}</b> has assigned you a task.</p><table style="border-collapse:collapse;width:100%;border:1px solid #e3e9f1"><tr><td style="padding:8px 12px;background:#f4f8fc;width:110px">Task</td><td style="padding:8px 12px"><b>${escHtml(t.title)}</b></td></tr>${t.details ? `<tr><td style="padding:8px 12px;background:#f4f8fc">Details</td><td style="padding:8px 12px">${escHtml(t.details).replace(/\n/g, '<br>')}</td></tr>` : ''}<tr><td style="padding:8px 12px;background:#f4f8fc">Due date</td><td style="padding:8px 12px">${due}</td></tr></table><p style="margin:18px 0"><a href="${url}/#/tracker" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Open the task and mark it complete</a></p><p>Please add your remarks when you mark it complete.</p><p>Regards,<br><b>${escHtml(t.createdBy)}</b></p></div>`;
-  const msg = { to: t.assigneeEmail, subject: `New task: ${t.title} (due ${due})`, html };
+  const list = t.auto
+    ? `<p style="margin:14px 0 6px"><b>Pending when assigned</b></p><ul style="margin:0 0 10px;padding-left:18px">${t.auto.items.slice(0, 20).map((x) => `<li>${x.link ? `<a href="${escHtml(x.link)}">${escHtml(x.name)}</a>` : escHtml(x.name)}${x.note ? ` <span style="color:#7a8799">${escHtml(x.note)}</span>` : ''}</li>`).join('')}</ul>${t.auto.items.length > 20 ? `<p>and ${t.auto.items.length - 20} more in the hub.</p>` : ''}<p style="color:#5b6773">The task completes itself once Lighthouse shows all of these cleared.</p>`
+    : '';
+  const msg = { to: t.assigneeEmail, subject: `New task: ${t.title} (due ${due})`, html: html.replace('<p style="margin:18px 0">', () => list + '<p style="margin:18px 0">') };
   try {
     // from the assigner's own mailbox when they connected one, otherwise from the hub's mailbox
     if (t.createdByEmail && G.tmAccount(t.createdByEmail)) await G.sendAs(t.createdByEmail, msg);
@@ -659,8 +663,19 @@ async function sendTaskMail(t, url) {
 app.get('/api/tracker', (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);
+  try {
+    syncAutoTasks();
+  } catch (e) {
+    console.log('[auto-tasks]', e.message);
+  }
   const rem = TaskRem.load();
-  res.json({ reminders: { enabled: rem.enabled, lastRun: rem.lastRun || null }, today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
+  // pending counts per TM; a TM gets only their own
+  const counts = {};
+  try {
+    const b = loadLatest() && board('progress');
+    for (const row of (b && b.rows) || []) if (req.role === 'owner' || row.name === me.name) counts[row.name] = Object.fromEntries(AutoTasks.CATEGORIES.map((c) => [c.key, AutoTasks.snapshot(row, c.key).length]));
+  } catch {}
+  res.json({ categories: AutoTasks.CATEGORIES.map(({ key, label }) => ({ key, label })), counts, reminders: { enabled: rem.enabled, lastRun: rem.lastRun || null }, today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
 });
 app.post('/api/tracker', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
@@ -672,7 +687,27 @@ app.post('/api/tracker', async (req, res) => {
       const names = [...new Set(Array.isArray(b.assignees) ? b.assignees : [b.assignee])].filter(Boolean);
       const people = names.map((n) => trackerPeople().find((p) => p.name === n));
       if (!people.length || people.some((p) => !p)) return res.status(400).json({ error: 'Choose a person from the team.' });
-      const made = people.map((who) => [who, TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email }, istDate())]);
+      const fields = (who) => ({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email });
+      const skipped = [];
+      let made;
+      if (b.category) {
+        const cat = AutoTasks.byKey(b.category);
+        if (!cat) return res.status(400).json({ error: 'Unknown task type.' });
+        // these carry student names, so a TM can set them only for themselves
+        if (req.role !== 'owner' && people.some((p) => p.name !== req.myTm)) return res.status(403).json({ error: 'You can create predefined tasks only for yourself.' });
+        await refresh().catch(() => {});
+        const A = loadLatest();
+        if (!A || AutoTasks.unreliable(cat.key, A.errors)) return res.status(502).json({ error: 'Lighthouse did not answer for this list. Try again in a minute.' });
+        const rows = board('progress').rows;
+        const ready = [];
+        for (const who of people) {
+          const items = AutoTasks.snapshot(rows.find((r) => r.name === who.name), cat.key);
+          if (items.length) ready.push([who, items]);
+          else skipped.push(who.name.split(' ')[0]);
+        }
+        if (!ready.length) return res.status(400).json({ error: `Nothing is pending under ${cat.label} for ${skipped.join(', ')}.` });
+        made = ready.map(([who, items]) => [who, TeamTasks.create({ ...fields(who), title: `${cat.label}: clear ${items.length} pending`, auto: { key: cat.key, label: cat.label, items, left: items.map((x) => x.id), checkedAt: null } }, istDate())]);
+      } else made = people.map((who) => [who, TeamTasks.create(fields(who), istDate())]);
       const failed = [];
       let mailed = 0;
       for (const [who, t] of made) {
@@ -682,7 +717,7 @@ app.post('/api/tracker', async (req, res) => {
         if (mail === 'sent') mailed++;
         else if (mail) failed.push(who.name + ': ' + mail);
       }
-      return res.json({ ok: true, count: made.length, mailed, mail: failed.length ? failed.join(' ') : mailed ? 'sent' : '' });
+      return res.json({ ok: true, count: made.length, mailed, skipped, mail: failed.length ? failed.join(' ') : mailed ? 'sent' : '' });
     }
     const t = TeamTasks.load().find((x) => x.id === b.id);
     if (!t || !trackerSees(req, t)) return res.status(404).json({ error: 'Task not found. Reload the page.' });
@@ -1308,6 +1343,7 @@ app.post('/api/refresh', async (req, res) => {
   try {
     TutorLeaves.bust();
     LastCalls.bust();
+    setTimeout(() => { try { syncAutoTasks(); } catch {} }, 0);
     ptmRanges.clear();
     Object.assign(ptmCache, { at: 0, key: '', data: null });
     ptm30.at = 0; // keep the old list on screen-time, a fresh one loads in the background
@@ -1628,11 +1664,39 @@ app.post('/api/ptm-reminders/test', async (req, res) => {
 
 // ---------- Scheduled jobs (Vercel Cron) ----------
 // vercel.json calls these Monday to Saturday at 11:00, 17:00 and 20:00 IST.
+// Predefined tasks follow the live Lighthouse lists: remember what is still pending, and finish the task when nothing is
+function syncAutoTasks() {
+  const open = TeamTasks.load().filter((t) => t.auto && t.status === 'open');
+  if (!open.length) return;
+  const A = loadLatest();
+  const b = A && board('progress');
+  if (!b) return;
+  for (const t of open) {
+    const left = AutoTasks.stillPending(t, b.rows.find((r) => r.name === t.assignee), A);
+    if (!left) continue;
+    if (left.join() === (t.auto.left || []).join() && t.auto.checkedAt) {
+      if (left.length) continue;
+    }
+    TeamTasks.update(t.id, (x) => {
+      x.auto.left = left;
+      x.auto.checkedAt = A.fetchedAt;
+      if (!left.length)
+        Object.assign(x, { status: 'done', doneAt: new Date().toISOString(), doneBy: 'Automatic', comment: `Completed automatically: all ${x.auto.items.length} item${x.auto.items.length === 1 ? '' : 's'} cleared in Lighthouse.` });
+    });
+  }
+}
+
 // Hourly pending-task mails (10 AM to 8 PM, Monday to Saturday). Called by hourly Vercel crons and by the laptop ping; the hub decides who is due.
 async function runTaskReminders() {
   const st = TaskRem.load();
   if (!st.enabled) return { skipped: 'Hourly task mails are switched off.' };
   if (!TaskRem.inWindow(istNow())) return { skipped: 'Outside 10 AM to 8 PM, Monday to Saturday.' };
+  // finished work should not be chased: look at fresh Lighthouse lists first
+  if (TeamTasks.load().some((t) => t.auto && t.status === 'open')) {
+    const A = loadLatest();
+    if (!A || Date.now() - new Date(A.fetchedAt).getTime() > 20 * 60 * 1000) await refresh().catch(() => {});
+    syncAutoTasks();
+  }
   const list = TaskRem.due(TeamTasks.load(), st.last, Date.now());
   if (!list.length) return { sent: 0 };
   // note the time first, so a second trigger arriving meanwhile does not mail the same person again

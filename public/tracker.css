@@ -98,3 +98,13 @@
 @media (prefers-reduced-motion: reduce) { .tk-lane, .tk-card, .tk-card.tk-in, .tk-person em, .tk-gauge .g-b { animation: none !important; transition: none !important; } }
 
 .tk-now { margin: 4px 0 0; color: #9a6700; font-weight: 700; }
+
+.tk-auto { margin-top: 8px; }
+.tk-bar { height: 7px; background: #e6e9ef; border-radius: 4px; overflow: hidden; }
+.tk-bar i { display: block; height: 100%; background: #16a34a; border-radius: 4px; transition: width 0.6s cubic-bezier(0.22, 0.61, 0.36, 1); animation: tkGrow 0.8s ease both; }
+@keyframes tkGrow { from { width: 0; } }
+.tk-link { border: 0; background: none; padding: 4px 0 0; font: 600 11.5px/1.3 inherit; font-family: inherit; color: #2b2f8f; cursor: pointer; }
+.tk-items { list-style: none; margin: 6px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.tk-items li { display: flex; gap: 7px; padding: 4px 0; border-top: 1px solid #f0f2f6; font-size: 12px; }
+.tk-items li.ok { color: var(--ink-3); } .tk-items li.ok > span { color: #16a34a; font-weight: 800; }
+.tk-items small { display: block; font-size: 10.5px; color: var(--ink-3); }
