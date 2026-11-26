@@ -2362,13 +2362,21 @@ const reportCell = (m) => {
     : `<td class="rp-cell" style="white-space:nowrap"><a href="#" data-report="${esc(m.studentId)}" class="btn btn-ghost" style="padding:5px 10px;font-size:12px">📄 Create report</a></td>`;
 };
 const remarkCell = (m) => `<td class="rm-cell" data-rm="${esc(m.id)}">${remarkHtml(m)}</td>`;
+// Under the status: mark a PTM held outside Lighthouse as done, or take such an entry back
+const manualCell = (m) => {
+  if (!rmCan(m)) return m.manual ? '<br><small style="color:var(--ink-3)">added by hand</small>' : '';
+  if (m.manual) return `<br><small style="color:var(--ink-3)">added by hand · <a href="#" data-pm="undo" data-id="${esc(m.id)}">undo</a></small>`;
+  const st = ptmState(m);
+  if (st === 'completed' || st === 'upcoming' || st === 'cancelled') return '';
+  return `<br><a href="#" data-pm="mark" data-id="${esc(m.id)}" data-who="${esc(m.student)}" style="font-size:12px">✓ Mark done (GMeet)</a>`;
+};
 function ptmRows(list, withDay) {
   if (!list.length) return '<div class="empty">No PTMs here.</div>';
   list = ptmUniq(list);
   return `<div class="table-wrap"><table class="tbl"><thead><tr><th>${withDay ? 'Date' : 'Time'}</th><th>TM</th><th>Student</th><th>Status</th><th class="num">Parent time</th><th>Agenda</th><th>Also in the meeting</th><th>Remarks</th><th>Report</th></tr></thead><tbody>${list
     .map(
       (m) => `<tr class="ptm-row" data-ptm="${esc(m.id)}" title="Click for student and meeting details"><td style="white-space:nowrap"><b>${withDay ? `${esc(ptmDay(m))}</b><br><small style="color:var(--ink-3)">${esc(ptmTime(m))}</small>` : `${esc(ptmTime(m))}</b>`}</td>
-        <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}${m._n > 1 ? `<br><small style="color:var(--ink-3)" title="Several PTMs with this student on the same day are shown as one, with the parent minutes added">${m._n} meetings, 1 student</small>` : ''}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}</td>
+        <td><a href="#/tm/${encodeURIComponent(m.tm)}"><b>${esc(m.tm.split(' ')[0])}</b></a></td><td>${ptmStudent(m)}${m._n > 1 ? `<br><small style="color:var(--ink-3)" title="Several PTMs with this student on the same day are shown as one, with the parent minutes added">${m._n} meetings, 1 student</small>` : ''}</td><td style="white-space:nowrap">${ptmTag(m)}${m.recording ? ' <span title="Recording available in Lighthouse">🎥</span>' : ''}${manualCell(m)}</td>
         <td class="num">${esc(ptmParent(m))}</td><td class="ptm-agenda">${esc(m.agenda) || '<small style="color:var(--ink-3)">—</small>'}</td><td><small>${esc(m.with.join(', ')) || '—'}</small></td>${remarkCell(m)}${reportCell(m)}</tr>`
     )
     .join('')}</tbody></table></div>`;
@@ -2504,6 +2512,7 @@ async function ptm() {
   view.innerHTML = `
     <div class="grid g-kpi">${tiles}</div>
     ${reportCard()}
+    ${!S.status || S.status.role !== 'viewer' ? '<div style="display:flex;justify-content:flex-end;margin:4px 0 -6px"><button type="button" class="btn btn-primary" data-pm="add">＋ Add PTM taken on Google Meet</button></div>' : ''}
     <div class="section-title"><h2>Today’s PTM schedule</h2><span>${esc(dayName)} · ${lhLink(CRM + '/parent-meetings', 'Open in Lighthouse')}</span></div>
     <div class="card rise">${today.length ? ptmRows(today, false) : '<div class="empty">No PTMs booked for today yet. New bookings show up here when you open this page again.</div>'}</div>
     <div class="section-title"><h2>Tomorrow’s PTM schedule</h2><span>${esc(new Date(tomorrowIso + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</span></div>
@@ -2773,6 +2782,58 @@ document.addEventListener('mouseover', (e) => {
   if (e.target.closest && e.target.closest('a[href="#/ptm"]')) cachedApi('/api/ptm', 180000).catch(() => {});
 });
 setTimeout(() => S.data && cachedApi('/api/ptm', 180000).catch(() => {}), 2500);
+
+// ---------- PTMs recorded by hand ----------
+async function ptmManual(body, done) {
+  try {
+    await api('/api/ptm-manual', { body });
+    $('#modal').hidden = true;
+    toast(done, 'ok');
+    apiCache.delete('/api/ptm');
+    ptmToday = null;
+    route(true);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+function ptmModal(title_, fields, onSave) {
+  $('#modalCard').innerHTML = `<h3>${title_}</h3><div class="form">${fields}</div><p class="note">Saved in the hub only. Lighthouse is not changed.</p><div class="actions"><button class="btn btn-ghost" id="pmCancel" type="button">Cancel</button><button class="btn btn-primary" id="pmSave" type="button">Save</button></div>`;
+  $('#modal').hidden = false;
+  $('#pmCancel').onclick = () => ($('#modal').hidden = true);
+  $('#pmSave').onclick = onSave;
+}
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest && e.target.closest('[data-pm]');
+  if (!t) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const kind = t.dataset.pm;
+  if (kind === 'undo') {
+    if (window.confirm('Remove this hand-added PTM entry?')) ptmManual({ action: 'undo', id: t.dataset.id }, 'Removed');
+    return;
+  }
+  const mins = '<label>Parent time on the call (minutes)<input id="pmMin" type="number" min="1" max="240" value="20"></label>';
+  if (kind === 'mark') {
+    ptmModal('✓ Mark PTM done · ' + esc(t.dataset.who || ''), mins, () => ptmManual({ action: 'mark', id: t.dataset.id, minutes: $('#pmMin').value }, 'Marked as done'));
+    return;
+  }
+  await rpLoad();
+  const now = new Date(Date.now() + 5.5 * 3600000).toISOString();
+  ptmModal(
+    '＋ PTM taken on Google Meet',
+    `<label>Student<input id="pmStudent" list="pmList" autocomplete="off" placeholder="Type a name or ID"><datalist id="pmList">${(window.__rpStudents || []).map((s) => '<option value="' + esc(s.name + ' · ' + s.id) + '">' + esc(s.school || '') + '</option>').join('')}</datalist></label>
+     <label>Date<input id="pmDate" type="date" value="${now.slice(0, 10)}" max="${now.slice(0, 10)}"></label>
+     <label>Start time<input id="pmTime" type="time" value="${now.slice(11, 16)}"></label>
+     ${mins}
+     <label>Note (what it was about)<input id="pmNote" type="text" maxlength="500" placeholder="Optional"></label>`,
+    () => {
+      const raw = ($('#pmStudent').value || '').trim();
+      const id = (raw.match(/(\d+)\s*$/) || [])[1] || String(((window.__rpStudents || []).find((s) => s.name.toLowerCase() === raw.toLowerCase()) || {}).id || '');
+      if (!id) return toast('Pick the student from the list.', 'err');
+      ptmManual({ action: 'add', studentId: id, date: $('#pmDate').value, time: $('#pmTime').value, minutes: $('#pmMin').value, note: $('#pmNote').value }, 'PTM added');
+    }
+  );
+}, true);
 
 // ---------- Create PTM report ----------
 // Runs the four server steps one after another and shows progress. The finished PDF is saved to Google Drive.

@@ -18,6 +18,7 @@ const Remarks = require('./lib/ptmRemarks');
 const PRem = require('./lib/ptmReminders');
 const TutorLeaves = require('./lib/tutorLeaves');
 const DiskCache = require('./lib/diskCache');
+const ManualPtm = require('./lib/manualPtm');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -559,7 +560,7 @@ app.get('/api/ptm', async (req, res) => {
     monthStart,
     fetchedAt: new Date(data.at).toISOString(),
     team: tms.map((t) => t.name).filter((n) => req.role !== 'tm' || n === req.myTm),
-    meetings: data.data.map((m) => ({ ...m, tm: tmOf(m.host), remark: remarks[m.id] || null, reports: (repIdx[String(m.studentId)] || []).map((r) => ({ id: r.id, month: r.month, at: r.at })) })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
+    meetings: ManualPtm.overlay(data.data, from, to).map((m) => ({ ...m, tm: tmOf(m.host), remark: remarks[m.id] || null, reports: (repIdx[String(m.studentId)] || []).map((r) => ({ id: r.id, month: r.month, at: r.at })) })).filter((m) => req.role !== 'tm' || m.tm === req.myTm),
   });
 });
 // A TM writes remarks on their own PTMs after the meeting; the owner can write on any.
@@ -569,7 +570,7 @@ app.post('/api/ptm-remark', (req, res) => {
   const text = String((req.body && req.body.text) || '');
   if (!id) return res.status(400).json({ error: 'Missing meeting.' });
   const pools = [ptmCache, ...ptmRanges.values()];
-  let m = null;
+  let m = ManualPtm.load().added.find((x) => x.id === id) || null;
   for (const p of pools) if (!m && p && Array.isArray(p.data)) m = p.data.find((x) => String(x.id) === id);
   if (!m) return res.status(404).json({ error: 'Meeting not found. Reload the page and try again.' });
   const tms = team().map((x) => ({ name: x.name, lh: x.lighthouseName || x.name, old: x.oldName || '' }));
@@ -578,6 +579,54 @@ app.post('/api/ptm-remark', (req, res) => {
   if (req.role === 'tm' && tmName !== req.myTm) return res.status(403).json({ error: 'You can only write remarks on your own PTMs.' });
   const who = (req.user && (req.user.name || req.user.email)) || tmName;
   res.json({ remark: Remarks.set(id, text, who, { student: m.student, tm: tmName }) });
+});
+
+// Record by hand a PTM that was held outside Lighthouse (Google Meet). The owner can do this for any student,
+// a TM only for their own students and meetings.
+app.post('/api/ptm-manual', async (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const b = req.body || {};
+  const tms = team();
+  const nameOf = (host) => {
+    const t = tms.find((x) => [x.name, x.lighthouseName, x.oldName].some((n) => n && n.toLowerCase() === String(host).toLowerCase()));
+    return t ? t.name : host;
+  };
+  const who = req.user || 'owner';
+  const own = (tm) => req.role === 'owner' || tm === req.myTm;
+  try {
+    const today = istDate();
+    if (b.action === 'add') {
+      const A = loadLatest();
+      let found = null;
+      for (const m of tms) {
+        const x = ((A && A.students && A.students[M.lhName(m)]) || []).find((y) => String(y.id) === String(b.studentId));
+        if (x) found = { student: x.name, tm: m.name };
+      }
+      if (!found) return res.status(404).json({ error: 'Student not found. Pick one from the list.' });
+      if (!own(found.tm)) return res.status(403).json({ error: 'You can only add PTMs of your own students.' });
+      const rec = ManualPtm.add({ studentId: b.studentId, student: found.student, tm: found.tm, date: b.date, time: b.time, minutes: b.minutes, note: b.note, by: who }, today);
+      return res.json({ ok: true, id: rec.id });
+    }
+    const id = String(b.id || '');
+    if (!id) return res.status(400).json({ error: 'Missing meeting.' });
+    let m = ManualPtm.load().added.find((x) => x.id === id);
+    if (!m) for (const p of [ptmCache, ...ptmRanges.values()]) if (!m && p && Array.isArray(p.data)) m = p.data.find((x) => String(x.id) === id);
+    if (!m) {
+      const all = await ptmMeetings(addDays(today, -60), addDays(today, 14));
+      m = all.find((x) => String(x.id) === id);
+    }
+    if (!m) return res.status(404).json({ error: 'Meeting not found. Reload the page and try again.' });
+    if (!own(nameOf(m.host))) return res.status(403).json({ error: 'You can only change your own PTMs.' });
+    if (b.action === 'mark') {
+      if (new Date(m.start) > new Date()) return res.status(400).json({ error: 'This PTM has not started yet.' });
+      ManualPtm.mark(id, b.minutes, who);
+      return res.json({ ok: true });
+    }
+    if (b.action === 'undo') return res.json({ ok: ManualPtm.remove(id) });
+    res.status(400).json({ error: 'Unknown action.' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // One student, for the PTM detail panel: hub profile, open tasks and all their PTMs.
@@ -734,7 +783,7 @@ async function renewalPtms() {
   };
   const rank = ['completed', 'no_show', 'unmarked', 'live', 'upcoming', 'cancelled'];
   const by = new Map();
-  for (const m of hit.data) {
+  for (const m of ManualPtm.overlay(hit.data, from, today)) {
     const l = by.get(String(m.studentId)) || [];
     l.push(m);
     by.set(String(m.studentId), l);
@@ -870,7 +919,7 @@ app.post('/api/cron/backup', express.text({ type: '*/*', limit: '10kb' }), async
     renewals: loadRenewals(),
     tutors: loadTutors(),
     leaves: leaves.leaves,
-    ptms: meetings.map((m) => ({ ...m, remark: remarks[m.id] || null })),
+    ptms: ManualPtm.overlay(meetings, addDays(today, -30), addDays(today, 14)).map((m) => ({ ...m, remark: remarks[m.id] || null })),
     remarks,
     tasks: M.TASKS,
     board: board_,
@@ -998,7 +1047,7 @@ app.get('/api/students-all', async (req, res) => {
     return t ? t.name : host;
   };
   const byStudent = new Map();
-  for (const m of (ptm30.data || []).filter((x) => x.status === 'completed')) {
+  for (const m of ManualPtm.overlay(ptm30.data || [], addDays(today, -29), today).filter((x) => x.status === 'completed')) {
     const l = byStudent.get(Number(m.studentId)) || [];
     l.push({ date: m.date, minutes: m.parentMinutes, tm: tmOf(m.host) });
     byStudent.set(Number(m.studentId), l);
@@ -1412,7 +1461,8 @@ async function sendOneMail({ to, subject, html }) {
 }
 async function pendingRemarks() {
   const today = istDate();
-  const meetings = await ptmMeetings(addDays(today, -PRem.LOOKBACK_DAYS), today);
+  const from = addDays(today, -PRem.LOOKBACK_DAYS);
+  const meetings = ManualPtm.overlay(await ptmMeetings(from, today), from, today);
   return PRem.pending(meetings, Remarks.load(), team(), Date.now());
 }
 async function runPtmReminders({ test = false, force = false, only = null } = {}) {
