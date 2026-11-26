@@ -37,6 +37,8 @@ function sheets(d) {
       ((d.renewals && d.renewals.rows) || []).map((r) => [r.id, r.name, r.school, r.grade, r.tm, r.office, r.status, r.atStatus, r.rtype, r.att, r.remarks])],
     ['tutors', 'Tutors', ['Tutor ID', 'Tutor', 'Mobile', 'Mail', 'Type', 'Subject', 'Class', 'Other classes', 'City', 'Language', 'Joined', 'Tutor manager', 'Sr tutor manager', 'Leaving status', 'Last working day'],
       ((d.tutors && d.tutors.rows) || []).map((t) => [t.id, t.name, t.mobile, t.email, t.type, t.subject, t.grade, t.grades2, t.city, t.lang, t.joined, t.tm, t.stm, t.leaving, t.lwdRec || t.lwd])],
+    ['assigned-tasks', 'Assigned tasks', ['Task', 'Details', 'Assigned to', 'Assigned by', 'Assigned on', 'Due', 'Status', 'Completed on', 'Remarks'],
+      (d.teamTasks || []).map((t) => [t.title, t.details, t.assignee, t.createdBy, ist(t.assignedAt), t.due, t.status, ist(t.doneAt), t.comment])],
     ['tutor-leaves', 'Tutor leaves', ['Tutor', 'Tutor manager', 'Type', 'From', 'To', 'Remarks'], (d.leaves || []).map((l) => [l.name, l.tm, l.type, l.from, l.to, l.remarks])],
   ];
 }

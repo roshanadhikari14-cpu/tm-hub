@@ -19,6 +19,7 @@ const PRem = require('./lib/ptmReminders');
 const TutorLeaves = require('./lib/tutorLeaves');
 const DiskCache = require('./lib/diskCache');
 const ManualPtm = require('./lib/manualPtm');
+const TeamTasks = require('./lib/teamTasks');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -629,6 +630,72 @@ app.post('/api/ptm-manual', async (req, res) => {
   }
 });
 
+// ---------- Task tracker: tasks assigned within the team ----------
+const trackerPeople = () => {
+  const list = team().map((m) => ({ name: m.name, email: String(m.email || '').toLowerCase() }));
+  const owner = ownerEmail() || senderAddr() || '';
+  if (!list.some((p) => p.name === sender().name)) list.unshift({ name: sender().name, email: owner });
+  return list;
+};
+const trackerMe = (req) => (req.role === 'owner' ? { name: sender().name, email: ownerEmail() || String(senderAddr() || '') } : { name: req.myTm, email: req.user || '' });
+// a TM sees the tasks given to them and the ones they gave; the owner sees all
+const trackerSees = (req, t) => req.role === 'owner' || t.assignee === req.myTm || t.createdByEmail === req.user;
+const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function sendTaskMail(t, url) {
+  if (!t.assigneeEmail) return 'No mail address is known for ' + t.assignee + '.';
+  const due = new Date(t.due + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f1b2d;max-width:600px;line-height:1.55"><p>Hi ${escHtml(t.assignee.split(' ')[0])},</p><p><b>${escHtml(t.createdBy)}</b> has assigned you a task.</p><table style="border-collapse:collapse;width:100%;border:1px solid #e3e9f1"><tr><td style="padding:8px 12px;background:#f4f8fc;width:110px">Task</td><td style="padding:8px 12px"><b>${escHtml(t.title)}</b></td></tr>${t.details ? `<tr><td style="padding:8px 12px;background:#f4f8fc">Details</td><td style="padding:8px 12px">${escHtml(t.details).replace(/\n/g, '<br>')}</td></tr>` : ''}<tr><td style="padding:8px 12px;background:#f4f8fc">Due date</td><td style="padding:8px 12px">${due}</td></tr></table><p style="margin:18px 0"><a href="${url}/#/tracker" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Open the task and mark it complete</a></p><p>Please add your remarks when you mark it complete.</p><p>Regards,<br><b>${escHtml(t.createdBy)}</b></p></div>`;
+  const msg = { to: t.assigneeEmail, subject: `New task: ${t.title} (due ${due})`, html };
+  try {
+    // from the assigner's own mailbox when they connected one, otherwise from the hub's mailbox
+    if (t.createdByEmail && G.tmAccount(t.createdByEmail)) await G.sendAs(t.createdByEmail, msg);
+    else await mailTo(msg.to, msg.subject, msg.html);
+    return 'sent';
+  } catch (e) {
+    return 'The mail could not be sent: ' + mailErr(e);
+  }
+}
+app.get('/api/tracker', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const me = trackerMe(req);
+  res.json({ today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => p.name), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
+});
+app.post('/api/tracker', async (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const b = req.body || {};
+  const me = trackerMe(req);
+  try {
+    if (b.action === 'create') {
+      const who = trackerPeople().find((p) => p.name === b.assignee);
+      if (!who) return res.status(400).json({ error: 'Choose a person from the team.' });
+      const t = TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, by: me.name, byEmail: me.email }, istDate());
+      // no mail to yourself
+      const mail = who.name === me.name ? '' : await sendTaskMail(t, baseUrl(req));
+      TeamTasks.update(t.id, (x) => (x.mail = mail));
+      return res.json({ ok: true, mail });
+    }
+    const t = TeamTasks.load().find((x) => x.id === b.id);
+    if (!t || !trackerSees(req, t)) return res.status(404).json({ error: 'Task not found. Reload the page.' });
+    const mine = req.role === 'owner' || t.createdByEmail === me.email;
+    if (b.action === 'done') {
+      if (!(mine || t.assignee === me.name)) return res.status(403).json({ error: 'Only the person it is assigned to can complete it.' });
+      TeamTasks.complete(t.id, b.comment, me.name);
+    } else if (b.action === 'reopen' || b.action === 'delete' || b.action === 'remind') {
+      if (!mine) return res.status(403).json({ error: 'Only the person who assigned it can do this.' });
+      if (b.action === 'reopen') TeamTasks.reopen(t.id);
+      else if (b.action === 'delete') TeamTasks.remove(t.id);
+      else {
+        const mail = await sendTaskMail(t, baseUrl(req));
+        TeamTasks.update(t.id, (x) => (x.mail = mail));
+        return res.json({ ok: true, mail });
+      }
+    } else return res.status(400).json({ error: 'Unknown action.' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // One student, for the PTM detail panel: hub profile, open tasks and all their PTMs.
 app.get('/api/ptm/student/:id', async (req, res) => {
   const id = Number(req.params.id);
@@ -924,6 +991,7 @@ app.post('/api/cron/backup', express.text({ type: '*/*', limit: '10kb' }), async
     tasks: M.TASKS,
     board: board_,
     access: Access.list(),
+    teamTasks: TeamTasks.load(),
   });
 });
 

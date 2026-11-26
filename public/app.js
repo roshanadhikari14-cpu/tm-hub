@@ -240,7 +240,7 @@ async function load(force) {
   paintChrome();
   return S.data;
 }
-const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'ptm', 'students', 'renewals', 'tutors'], viewer: ['dashboard', 'tutors'] };
+const ROLE_ROUTES = { tm: ['dashboard', 'tm', 'tasks', 'tracker', 'ptm', 'students', 'renewals', 'tutors'], viewer: ['dashboard', 'tutors'] };
 function roleOK(name) {
   const role = S.status && S.status.role;
   return !role || role === 'owner' || (ROLE_ROUTES[role] || []).includes(name);
@@ -312,6 +312,7 @@ $('#refreshBtn').onclick = async () => {
   const btn = $('#refreshBtn');
   btn.classList.add('loading');
   btn.disabled = true;
+  loaderShow('Getting fresh data from Lighthouse');
   try {
     const j = await api('/api/refresh', { body: {} });
     toast(j.errors && j.errors.length ? `Refreshed, but ${j.errors.length} list(s) failed: ${j.errors[0]}` : 'Fresh data loaded from Lighthouse', j.errors && j.errors.length ? 'err' : 'ok');
@@ -322,6 +323,7 @@ $('#refreshBtn').onclick = async () => {
   } catch (err) {
     toast(err.message, 'err');
   } finally {
+    loaderHide();
     btn.classList.remove('loading');
     btn.disabled = false;
   }
@@ -414,7 +416,7 @@ const RN_PTM = {
 const rnPtmKey = (r) => (!r.ptm ? 'none' : r.ptm.state === 'cancelled' ? 'none' : r.ptm.state);
 async function renewals() {
   title('Renewals', 'Students due to renew, with their status and remarks');
-  view.innerHTML = '<div class="card empty">Loading renewals…</div>';
+  view.innerHTML = loader();
   let j;
   try {
     j = await swrFetch('/api/renewals', renewals, '#/renewals');
@@ -688,7 +690,7 @@ const ttDate = (s) => {
 };
 async function tutors() {
   title('Tutor Management', 'Every tutor with their manager, subject, classes and resignation status');
-  view.innerHTML = '<div class="card empty">Loading tutors…</div>';
+  view.innerHTML = loader();
   let j;
   try {
     j = await swrFetch('/api/tutors', tutors, '#/tutors');
@@ -861,7 +863,94 @@ async function tutors() {
     a.click();
   };
 }
-const routes = { dashboard, team, tm, tasks, ptm, students, renewals, tutors, reports, schedule, settings };
+// ---------- Task tracker ----------
+const tkState = { f: 'open', who: '' };
+const tkDay = (d) => new Date(d.length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: d.length === 10 ? 'UTC' : 'Asia/Kolkata' });
+const tkDays = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+// open tasks: how late or how close; finished ones: whether they were late
+function tkStatus(t, today) {
+  if (t.status === 'done') {
+    const late = tkDays(t.due, new Date(t.doneAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+    return { key: 'done', late: false, html: '<span class="ptag ok">Completed</span>' + (late > 0 ? '<br><small style="color:var(--red)">' + late + ' day' + (late === 1 ? '' : 's') + ' past due</small>' : '') };
+  }
+  const past = tkDays(t.due, today);
+  if (past > 0) return { key: 'late', late: true, html: '<span class="ptag red">' + past + ' day' + (past === 1 ? '' : 's') + ' past</span>' };
+  if (past === 0) return { key: 'today', late: false, html: '<span class="ptag amber">Due today</span>' };
+  return { key: 'next', late: false, html: '<span class="ptag blue">' + (past === -1 ? 'Due tomorrow' : 'Due in ' + -past + ' days') + '</span>' };
+}
+async function tracker() {
+  title('Task tracker', 'Tasks assigned in the team, with due dates and remarks');
+  if (!$('#tkBody')) view.innerHTML = loader({ text: 'Loading tasks' });
+  let j;
+  try {
+    j = await api('/api/tracker');
+  } catch (err) {
+    view.innerHTML = '<div class="card"><h3>Could not load tasks</h3><p class="note">' + esc(err.message) + '</p></div>';
+    return;
+  }
+  const all = j.tasks.map((t) => ({ ...t, s: tkStatus(t, j.today) }));
+  const mine = (t) => j.role === 'owner' || t.createdByEmail === j.myEmail;
+  const FILTERS = [['open', 'blue', 'open', (t) => t.status === 'open'], ['today', 'amber', 'due today', (t) => t.s.key === 'today'], ['late', 'red', 'past due', (t) => t.s.key === 'late'], ['done', 'ok', 'completed', (t) => t.status === 'done'], ['all', '', 'all tasks', () => true]];
+  view.innerHTML = `<div class="toolbar team-tools" style="flex-wrap:wrap">
+      <select class="sel" id="tkWho"><option value="">Everyone</option>${j.people.map((p) => '<option ' + (tkState.who === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select>
+      <span style="flex:1"></span><button type="button" class="btn btn-primary" id="tkNew">＋ Assign task</button></div>
+    <div class="rn-chips" id="tkSum"></div>
+    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th>Task</th><th>Assigned to</th><th>Assigned on</th><th>Due date</th><th>Status</th><th>Remarks</th><th></th></tr></thead><tbody id="tkBody"></tbody></table></div></div>`;
+  const paint = () => {
+    const base = all.filter((t) => !tkState.who || t.assignee === tkState.who);
+    $('#tkSum').innerHTML = FILTERS.map(([k, cls, label, f]) => '<button type="button" class="ptag ' + cls + ' rn-chip ' + (tkState.f === k ? 'on' : '') + '" data-f="' + k + '">' + base.filter(f).length + ' ' + label + '</button>').join('');
+    $$('#tkSum .rn-chip').forEach((c) => (c.onclick = () => ((tkState.f = c.dataset.f), paint())));
+    const f = FILTERS.find((x) => x[0] === tkState.f)[3];
+    const list = base.filter(f).sort((x, y) => (x.status === y.status ? (x.status === 'done' ? String(y.doneAt).localeCompare(String(x.doneAt)) : x.due.localeCompare(y.due)) : x.status === 'open' ? -1 : 1));
+    $('#tkBody').innerHTML = list.map((t) => `<tr>
+        <td style="min-width:260px"><b>${esc(t.title)}</b>${t.details ? '<br><small style="color:var(--ink-2);white-space:pre-wrap">' + esc(t.details) + '</small>' : ''}</td>
+        <td style="white-space:nowrap"><b>${esc(t.assignee)}</b><br><small style="color:var(--ink-3)">by ${esc(t.createdBy)}</small></td>
+        <td style="white-space:nowrap">${tkDay(t.assignedAt)}${t.mail === 'sent' ? '<br><small style="color:var(--ink-3)">✉ mailed</small>' : t.mail ? '<br><small style="color:var(--red)" title="' + esc(t.mail) + '">✉ not sent</small>' : ''}</td>
+        <td style="white-space:nowrap">${tkDay(t.due)}</td>
+        <td style="white-space:nowrap">${t.s.html}</td>
+        <td style="min-width:200px">${t.comment ? '<span style="white-space:pre-wrap">' + esc(t.comment) + '</span>' + (t.status === 'done' ? '<br><small style="color:var(--ink-3)">' + esc(t.doneBy) + ' · ' + tkDay(t.doneAt) + '</small>' : '<br><small style="color:var(--ink-3)">earlier remark</small>') : '<small style="color:var(--ink-3)">—</small>'}</td>
+        <td style="white-space:nowrap">${t.status === 'open' && (mine(t) || t.assignee === j.me) ? '<button type="button" class="btn btn-primary" data-tk="done" data-id="' + t.id + '" style="padding:5px 10px;font-size:12.5px">✓ Mark complete</button>' : ''}${mine(t) ? '<div style="margin-top:5px;font-size:12px">' + (t.status === 'done' ? '<a href="#" data-tk="reopen" data-id="' + t.id + '">Reopen</a> · ' : t.assignee !== j.me ? '<a href="#" data-tk="remind" data-id="' + t.id + '">Mail again</a> · ' : '') + '<a href="#" data-tk="delete" data-id="' + t.id + '" style="color:var(--red)">Delete</a></div>' : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No tasks here.</td></tr>';
+  };
+  paint();
+  $('#tkWho').onchange = (e) => ((tkState.who = e.target.value), paint());
+  const send = async (body, done) => {
+    try {
+      const r = await api('/api/tracker', { body });
+      $('#modal').hidden = true;
+      if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
+      else toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
+      tracker();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  };
+  const modal = (head, fields, label, onOk) => {
+    $('#modalCard').innerHTML = '<h3>' + head + '</h3><div class="form">' + fields + '</div><div class="actions"><button type="button" class="btn btn-ghost" id="tkNo">Cancel</button><button type="button" class="btn btn-primary" id="tkOk">' + label + '</button></div>';
+    $('#modal').hidden = false;
+    $('#tkNo').onclick = () => ($('#modal').hidden = true);
+    $('#tkOk').onclick = (e) => {
+      e.target.disabled = true;
+      Promise.resolve(onOk()).finally(() => (e.target.disabled = false));
+    };
+  };
+  $('#tkNew').onclick = () =>
+    modal('＋ Assign a task', '<label>Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label><label>Assign to<select id="tkTo">' + j.people.map((p) => '<option>' + esc(p) + '</option>').join('') + '</select></label><label>Due date<input id="tkDue" type="date" min="' + j.today + '" value="' + j.today + '"></label><p class="note">A mail goes to the person the task is assigned to.</p>', 'Assign and send mail', () =>
+      send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignee: $('#tkTo').value, due: $('#tkDue').value }, 'Task assigned.')
+    );
+  $('#tkBody').onclick = (e) => {
+    const b = e.target.closest('[data-tk]');
+    if (!b) return;
+    e.preventDefault();
+    const t = all.find((x) => x.id === b.dataset.id);
+    if (!t) return;
+    if (b.dataset.tk === 'done')
+      return modal('✓ Complete: ' + esc(t.title), '<label>Remarks (what was done)<textarea id="tkComment" rows="4" maxlength="2000"></textarea></label>', 'Mark complete', () => send({ action: 'done', id: t.id, comment: $('#tkComment').value }, 'Marked complete.'));
+    if (b.dataset.tk === 'reopen') return send({ action: 'reopen', id: t.id }, 'Reopened.');
+    if (b.dataset.tk === 'remind') return window.confirm('Send the task mail to ' + t.assignee + ' again?') && send({ action: 'remind', id: t.id }, 'Reminder done.');
+    if (window.confirm('Delete this task?')) send({ action: 'delete', id: t.id }, 'Deleted.');
+  };
+}
+const routes = { dashboard, team, tm, tasks, tracker, ptm, students, renewals, tutors, reports, schedule, settings };
 let navToken = 0;
 async function route(keepScroll) {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
@@ -909,7 +998,7 @@ const stState = { q: '', tm: 'all', f: 'all', col: '', dir: 1, limit: 120 };
 let stRows = [];
 async function students() {
   title('All students', 'Details, PTMs done in the last 30 days and saved reports');
-  view.innerHTML = '<div class="card empty">Loading students…</div>';
+  view.innerHTML = loader();
   let j;
   try {
     j = await swrFetch('/api/students-all', students, '#/students');
@@ -1699,10 +1788,10 @@ async function settings() {
   const g = st.google || {};
   title('Settings', 'Lighthouse login and email account');
   view.innerHTML = `
-    <div class="card rise" id="mbCard" style="margin-bottom:18px"><h3>✉ TM mailboxes</h3><div id="mbBox" class="note">Loading…</div></div>
-    <div class="card rise" id="remCard" style="margin-bottom:18px"><h3>⏰ PTM remark reminders</h3><div id="remBox" class="note">Loading…</div></div>
+    <div class="card rise" id="mbCard" style="margin-bottom:18px"><h3>✉ TM mailboxes</h3><div id="mbBox" class="note">${loader({ small: true })}</div></div>
+    <div class="card rise" id="remCard" style="margin-bottom:18px"><h3>⏰ PTM remark reminders</h3><div id="remBox" class="note">${loader({ small: true })}</div></div>
     <div class="card rise" id="accessCard" style="margin-bottom:18px"><h3>🔑 Access</h3><div class="sub">TMs in your team list see their own tasks and students plus overall team numbers. Anyone else with an UPRIO mail asks for access and shows up here (you also get a mail).</div><div id="accessBody" class="note" style="margin-top:10px">Loading…</div></div>
-    <div class="card rise" style="margin-bottom:18px"><h3>🎙 My voice for hover read-outs</h3><div id="packBox" class="note">Loading…</div></div>
+    <div class="card rise" style="margin-bottom:18px"><h3>🎙 My voice for hover read-outs</h3><div id="packBox" class="note">${loader({ small: true })}</div></div>
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
@@ -1847,7 +1936,7 @@ async function settings() {
 }
 
 // ---------- start ----------
-view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
+view.innerHTML = loader();
 route();
 setTimeout(swrWarm, 600); // once per visit; no repeating timer, to keep server and database traffic low
 // A tab left open keeps the old look and code, so it reloads itself after the site is updated; never while someone is
@@ -2388,7 +2477,7 @@ const isoShift = (iso, n) => {
 };
 async function ptm() {
   title('PTM', 'Loading parent-teacher meetings from Lighthouse…');
-  view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:120px"></div>'.repeat(4) + '</div>';
+  view.innerHTML = loader({ text: 'Loading parent-teacher meetings' });
   let j;
   try {
     j = await cachedApi('/api/ptm', 180000);
@@ -2467,7 +2556,7 @@ async function ptm() {
     let list = all;
     // Outside what this page already has: ask Lighthouse for that range.
     if (from < loaded.from || to > loaded.to) {
-      box.innerHTML = '<div class="skeleton" style="height:120px"></div>';
+      box.innerHTML = loader({ small: true });
       try {
         const r = await api(`/api/ptm?from=${from}&to=${to}`);
         list = r.meetings;
@@ -2616,7 +2705,7 @@ async function openPtmPanel(meetingId) {
   dr.className = 'drawer';
   dr.setAttribute('role', 'dialog');
   dr.innerHTML = `<div class="drawer-head"><button class="drawer-x" title="Close (Esc)">✕</button><h3>${esc(m.student)}</h3><div class="sub">PTM with ${esc(m.tm)} · ${esc(ptmDay(m))}, ${esc(ptmTime(m))}</div></div>
-    <div class="drawer-body"><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:220px"></div></div>`;
+    <div class="drawer-body">${loader({ small: true })}</div>`;
   document.body.append(bg, dr);
   $('.drawer-x', dr).onclick = closePtmPanel;
   document.addEventListener('keydown', ptmEsc);
