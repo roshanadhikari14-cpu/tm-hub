@@ -1016,8 +1016,9 @@ async function tracker() {
       const r = await api('/api/tracker', { body });
       $('#modal').hidden = true;
       if (r.skipped && r.skipped.length) toast('Assigned. Nothing pending for ' + r.skipped.join(', ') + ', so they got no task.', 'ok');
-      if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
-      else if (done) toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
+      if (r.doneMail) toast(r.doneMail === 'sent' ? 'Marked complete. Mail sent to you and the TM.' : 'Marked complete. ' + r.doneMail, r.doneMail === 'sent' ? 'ok' : 'err');
+      else if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
+      else if (done && !r.doneMail) toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
       if (after) after();
       await tracker();
     } catch (err) {
@@ -1046,7 +1047,7 @@ async function tracker() {
       <div class="tk-top"><span class="tk-pill p-${t.priority.toLowerCase()}">${esc(t.priority)}</span>${dueLine(t)}</div>
       <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>assigned by ${esc(t.createdBy)} on ${tkDay(t.assignedAt)}</small></div></div>
       ${t.details ? `<p class="tk-details">${esc(t.details)}</p>` : ''}
-      <h4 class="tk-h">Student and unresolved concerns</h4><div id="tkPopStu">${loader({ small: true, text: 'Looking up the student' })}</div>
+      <h4 class="tk-h">Student and everything pending</h4><div id="tkPopStu">${loader({ small: true, text: 'Collecting pending items' })}</div>
       </div><div class="tk-col"><h4 class="tk-h">Remarks</h4>
       ${t.remarks.map((x) => note(x.by, x.text, x.at)).join('')}${t.comment ? note(t.doneBy, t.comment, t.doneAt, 'on completion') : ''}${!t.remarks.length && !t.comment ? '<p class="tk-small">No remarks yet.</p>' : ''}
       <form class="tk-add" id="tkPopAdd"><input maxlength="1000" placeholder="Write a remark…" aria-label="Remark"><button type="submit" class="tk-btn go">Add</button></form></div></div>
@@ -1077,18 +1078,33 @@ async function tracker() {
       return;
     }
     if (tkState.popup !== t.id || !$('#tkPopStu') || $('#modal').hidden) return;
+    const line = (x) => `<a class="tk-item ${x.late ? 'late' : ''}" href="${esc(x.link)}" target="_blank" rel="noopener"><span><b>${esc(x.title)}</b><small>${esc(x.meta || '')}</small></span>${x.lateText ? `<em>${esc(x.lateText)}</em>` : ''}<i>↗</i></a>`;
+    const studentBlock = (s, n) => {
+      const groups = s.groups || [];
+      const total = groups.reduce((a, g) => a + g.items.length, 0);
+      return `<section class="tk-case"><div class="tk-case-top"><div class="tk-case-who"><span class="tk-av tk-ini">${esc(s.name.split(' ').map((w) => w[0]).slice(0, 2).join(''))}</span><div><b>${esc(s.name)}</b><small>${esc([s.grade ? 'Class ' + s.grade : '', s.school, 'ID ' + s.id].filter(Boolean).join(' · '))}${s.matched === 'possible' ? ' · possible match from the task text' : s.matched === 'text' ? ' · matched from the task text' : ''}</small></div></div>
+          <div class="tk-case-act"><button type="button" class="btn btn-ghost" data-sid="${s.id}" data-name="${esc(s.name)}">Parents and PTMs</button><a class="btn btn-primary" href="${esc(s.crm)}" target="_blank" rel="noopener">Open in Tutoring CRM ↗</a></div></div>
+        ${s.restricted
+          ? '<p class="tk-small">Another TM’s student: pending items are not shown.</p>'
+          : `<div class="tk-tiles">${groups.map((g) => `<button type="button" class="tk-tile g-${g.key} ${g.items.length ? '' : 'zero'}" data-jump="tkg-${n}-${g.key}"><span>${g.icon}</span><b>${g.items.length}</b><small>${esc(g.label)}</small></button>`).join('')}</div>
+             ${total ? `<div class="tk-groups">${groups.filter((g) => g.items.length).map((g) => `<div class="tk-group g-${g.key}" id="tkg-${n}-${g.key}"><h5><span>${g.icon}</span>${esc(g.label)}<em>${g.items.length}</em></h5>${g.items.slice(0, 8).map(line).join('')}${g.items.length > 8 ? `<p class="tk-small">and ${g.items.length - 8} more in the CRM</p>` : ''}</div>`).join('')}</div>` : '<p class="tk-clear">✓ Nothing pending for this student</p>'}
+             ${s.error ? `<p class="tk-red tk-small">${esc(s.error)}</p>` : ''}`}</section>`;
+    };
     $('#tkPopStu').innerHTML =
-      d.students
-        .map(
-          (s) => `<section class="tk-case"><div class="tk-case-top"><div><b>🎓 ${esc(s.name)}</b><small>${esc([s.grade ? 'Class ' + s.grade : '', s.school, 'ID ' + s.id].filter(Boolean).join(' · '))}${s.matched === 'possible' ? ' · possible match from the task text' : s.matched === 'text' ? ' · matched from the task text' : ''}</small></div>
-            <a class="btn btn-primary" href="${esc(s.crm)}" target="_blank" rel="noopener">Open in Tutoring CRM ↗</a></div>
-            ${s.restricted
-              ? '<p class="tk-small">Another TM’s student: concerns are not shown.</p>'
-              : s.concerns.map((c) => `<a class="tk-concern" href="${esc(c.link)}" target="_blank" rel="noopener"><span class="tk-pill p-high">${esc(c.type)}</span><span><b>${esc(c.category || c.state || 'Open')}</b><small>${esc([c.state, c.owner ? 'with ' + c.owner : '', c.age == null ? '' : c.age + ' day' + (c.age === 1 ? '' : 's') + ' old', c.rating ? c.rating + '★' : ''].filter(Boolean).join(' · '))}</small></span><i>↗</i></a>`).join('') || '<p class="tk-small">No unresolved concern or negative feedback in the last two weeks.</p>'}
-            <button type="button" class="tk-link" data-sid="${s.id}" data-name="${esc(s.name)}">Parents, attendance and PTMs</button></section>`
-        )
-        .join('') || '<p class="tk-small">No student is attached to this task. Edit or create the task with a student to see their details here.</p>';
+      d.students.map(studentBlock).join('') + (d.more ? `<p class="tk-small">${d.more} more students are attached; open them from the card.</p>` : '') ||
+      '<p class="tk-small">No student is attached to this task. Create the task with a student to see their pending items here.</p>';
     $('#tkPopStu').onclick = (e) => {
+      const tile = e.target.closest('[data-jump]');
+      if (tile) {
+        const to = document.getElementById(tile.dataset.jump);
+        if (to) {
+          to.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          to.classList.remove('flash');
+          void to.offsetWidth;
+          to.classList.add('flash');
+        }
+        return;
+      }
       const b = e.target.closest('button[data-sid]');
       if (!b) return;
       tkState.popup = '';

@@ -23,6 +23,7 @@ const TeamTasks = require('./lib/teamTasks');
 const TaskRem = require('./lib/taskReminders');
 const { parseTask, findStudents } = require('./lib/taskParse');
 const AutoTasks = require('./lib/autoTasks');
+const StudentPending = require('./lib/studentPending');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -691,7 +692,7 @@ app.post('/api/tracker/parse', (req, res) => {
   }
 });
 // What the task popup shows: the students it is about, their Tutoring CRM pages and what is still unresolved
-app.get('/api/tracker/task/:id', (req, res) => {
+app.get('/api/tracker/task/:id', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const task = TeamTasks.load().find((x) => x.id === req.params.id);
   if (!task || !trackerSees(req, task)) return res.status(404).json({ error: 'Task not found. Reload the page.' });
@@ -705,28 +706,36 @@ app.get('/api/tracker/task/:id', (req, res) => {
     const found = findStudents(task.title + '. ' + (task.details || ''), theirs.length ? theirs : mine, people, [task.assignee]);
     list = found.flatMap((g) => g.matches.map((m) => ({ id: m.id, name: m.name, grade: m.grade, school: m.school, tm: m.tm, matched: g.matches.length > 1 ? 'possible' : 'text' }))).slice(0, 6);
   }
-  const tickets = ((A.tickets && A.tickets.all) || []).filter((x) => x.resolved !== 'Yes');
-  const feedback = (A.pcf || []).filter((x) => x.taskStatus !== 'Completed');
-  const students = list.map((s) => {
-    const crm = M.stuLink(s.id);
-    // a TM never gets the concern details of another TM's student
-    if (!studentAllowed(req, s.id)) return { ...s, crm, restricted: true, concerns: [] };
-    const seen = new Set();
-    const concerns = tickets
-      .filter((x) => Number(x.studentId) === Number(s.id) && !seen.has(x.feedbackId) && seen.add(x.feedbackId))
-      .map((x) => ({ type: x.feedbackType || 'Concern', category: x.category || '', state: x.currentState || '', owner: x.owner || '', age: x.ageDays == null ? null : x.ageDays, link: `${crm}?activeTab=concernsAndRequests&focusFeedback=${encodeURIComponent(x.feedbackId)}` }));
-    for (const x of feedback.filter((y) => Number(y.studentId) === Number(s.id)))
-      concerns.push({ type: 'Negative feedback', category: x.className || '', state: x.taskStatus || '', owner: '', age: null, rating: x.feedbackRating, link: crm });
-    return { ...s, crm, restricted: false, concerns };
-  });
-  res.json({ id: task.id, students, dataAt: A.fetchedAt || null });
+  // the hub's own lists, read from today's board: negative feedback, NC-15 and classes still to be booked
+  const rows = ((A.date && board('progress')) || {}).rows || [];
+  const localFor = (crm) => {
+    const out = { negfb: [], nc15: [], booking: [] };
+    for (const row of rows)
+      for (const [key, into, title] of [['negfb', 'negfb', 'Negative feedback'], ['nc15', 'nc15', 'Parent not connected'], ['ic2', 'booking', 'Improvement class to be booked'], ['eval', 'booking', 'Evaluation to be booked']])
+        for (const it of (row.tasks[key] && row.tasks[key].items) || [])
+          if (it.link === crm)
+            out[into].push({ title, meta: (it.cells || []).slice(1).filter((c) => c !== '' && c != null).join(' · '), late: Boolean(it.flag), lateText: it.flag ? 'overdue' : '', link: it.taskLink || it.link });
+    return out;
+  };
+  const today = istDate();
+  const students = await Promise.all(
+    list.slice(0, 4).map(async (s) => {
+      const crm = M.stuLink(s.id);
+      // a TM never gets the details of another TM's student
+      if (!studentAllowed(req, s.id)) return { ...s, crm, restricted: true, groups: [] };
+      const p = await StudentPending.pendingFor(s.id, today, localFor(crm));
+      return { ...s, crm, restricted: false, groups: p.groups, error: p.error };
+    })
+  );
+  res.json({ id: task.id, students, more: Math.max(0, list.length - 4), dataAt: A.fetchedAt || null });
 });
 
-app.get('/api/tracker', (req, res) => {
+app.get('/api/tracker', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);
   try {
     syncAutoTasks();
+    await mailAutoDone();
   } catch (e) {
     console.log('[auto-tasks]', e.message);
   }
@@ -793,7 +802,10 @@ app.post('/api/tracker', async (req, res) => {
     const mine = req.role === 'owner' || t.createdByEmail === me.email;
     if (b.action === 'done') {
       if (!(mine || t.assignee === me.name)) return res.status(403).json({ error: 'Only the person it is assigned to can complete it.' });
-      TeamTasks.complete(t.id, b.comment, me.name);
+      const done = TeamTasks.complete(t.id, b.comment, me.name);
+      const mail = await sendDoneMail(done, baseUrl(req));
+      TeamTasks.update(t.id, (x) => (x.doneMail = mail));
+      return res.json({ ok: true, doneMail: mail });
     } else if (b.action === 'remark') {
       // anyone who can see the task may add a note
       TeamTasks.remark(t.id, b.text, me.name);
@@ -1412,7 +1424,7 @@ app.post('/api/refresh', async (req, res) => {
   try {
     TutorLeaves.bust();
     LastCalls.bust();
-    setTimeout(() => { try { syncAutoTasks(); } catch {} }, 0);
+    setTimeout(() => { try { syncAutoTasks(); mailAutoDone().catch(() => {}); } catch {} }, 0);
     ptmRanges.clear();
     Object.assign(ptmCache, { at: 0, key: '', data: null });
     ptm30.at = 0; // keep the old list on screen-time, a fresh one loads in the background
@@ -1733,7 +1745,37 @@ app.post('/api/ptm-reminders/test', async (req, res) => {
 
 // ---------- Scheduled jobs (Vercel Cron) ----------
 // vercel.json calls these Monday to Saturday at 11:00, 17:00 and 20:00 IST.
+async function sendDoneMail(t, url) {
+  const owner = ownerEmail() || String(senderAddr() || '');
+  if (!owner) return 'No address is set for you.';
+  const cc = [...new Set([t.assigneeEmail, t.createdByEmail].map((e) => String(e || '').toLowerCase()).filter((e) => e && e !== owner.toLowerCase()))];
+  const when = new Date(t.doneAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  const past = Math.round((Date.parse(istDate(new Date(t.doneAt)) + 'T00:00:00Z') - Date.parse(t.due + 'T00:00:00Z')) / 86400000);
+  const row = (k, v) => `<tr><td style="padding:8px 12px;background:#f4f8fc;width:130px">${k}</td><td style="padding:8px 12px">${v}</td></tr>`;
+  const students = (t.students || []).map((x) => `<a href="${escHtml(M.stuLink(x.id))}">${escHtml(x.name)}</a> <span style="color:#7a8799">ID ${x.id}</span>`).join('<br>');
+  const notes = (t.remarks || []).map((x) => `<li><b>${escHtml(x.text)}</b> <span style="color:#7a8799">${escHtml(x.by)}</span></li>`).join('');
+  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f1b2d;max-width:620px;line-height:1.55"><p style="background:#ecfdf3;border-left:4px solid #16a34a;padding:10px 14px;margin:0 0 14px"><b>Task completed</b></p>
+<table style="border-collapse:collapse;width:100%;border:1px solid #e3e9f1">${row('Task', '<b>' + escHtml(t.title) + '</b>')}${row('Assigned to', escHtml(t.assignee))}${row('Assigned by', escHtml(t.createdBy))}${students ? row('Student', students) : ''}${row('Completed', escHtml(when) + ' by ' + escHtml(t.doneBy) + (past > 0 ? ` <b style="color:#b42318">(${past} day${past === 1 ? '' : 's'} past due)</b>` : ''))}${row('Remarks', '<b>' + escHtml(t.comment).replace(/\n/g, '<br>') + '</b>')}</table>
+${notes ? `<p style="margin:14px 0 4px">Notes on the task</p><ul style="margin:0;padding-left:18px">${notes}</ul>` : ''}<p style="margin:18px 0"><a href="${url}/#/tracker" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Open the task tracker</a></p></div>`;
+  const msg = { to: owner, cc: cc.length ? cc : undefined, subject: `Completed: ${t.title} (${t.assignee})`, html };
+  try {
+    if (G.account()) await G.send({ fromName: sender().name, ...msg });
+    else await mailer().sendMail({ from: `"${sender().name}" <${senderAddr()}>`, ...msg });
+    return 'sent';
+  } catch (e) {
+    return 'The completion mail could not be sent: ' + mailErr(e);
+  }
+}
+
 // Predefined tasks follow the live Lighthouse lists: remember what is still pending, and finish the task when nothing is
+async function mailAutoDone() {
+  for (const t of TeamTasks.load().filter((x) => x.needsDoneMail)) {
+    // cleared first, so a second pass cannot send it twice
+    TeamTasks.update(t.id, (x) => (x.needsDoneMail = false));
+    const mail = await sendDoneMail(t, APP_URL());
+    TeamTasks.update(t.id, (x) => (x.doneMail = mail));
+  }
+}
 function syncAutoTasks() {
   const open = TeamTasks.load().filter((t) => t.auto && t.status === 'open');
   if (!open.length) return;
@@ -1750,7 +1792,7 @@ function syncAutoTasks() {
       x.auto.left = left;
       x.auto.checkedAt = A.fetchedAt;
       if (!left.length)
-        Object.assign(x, { status: 'done', doneAt: new Date().toISOString(), doneBy: 'Automatic', comment: `Completed automatically: all ${x.auto.items.length} item${x.auto.items.length === 1 ? '' : 's'} cleared in Lighthouse.` });
+        Object.assign(x, { needsDoneMail: true, status: 'done', doneAt: new Date().toISOString(), doneBy: 'Automatic', comment: `Completed automatically: all ${x.auto.items.length} item${x.auto.items.length === 1 ? '' : 's'} cleared in Lighthouse.` });
     });
   }
 }
@@ -1765,6 +1807,7 @@ async function runTaskReminders() {
     const A = loadLatest();
     if (!A || Date.now() - new Date(A.fetchedAt).getTime() > 20 * 60 * 1000) await refresh().catch(() => {});
     syncAutoTasks();
+    await mailAutoDone();
   }
   const list = TaskRem.due(TeamTasks.load(), st.last, Date.now());
   if (!list.length) return { sent: 0 };
