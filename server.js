@@ -21,7 +21,7 @@ const DiskCache = require('./lib/diskCache');
 const ManualPtm = require('./lib/manualPtm');
 const TeamTasks = require('./lib/teamTasks');
 const TaskRem = require('./lib/taskReminders');
-const { parseTask } = require('./lib/taskParse');
+const { parseTask, findStudents } = require('./lib/taskParse');
 const AutoTasks = require('./lib/autoTasks');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
@@ -690,6 +690,38 @@ app.post('/api/tracker/parse', (req, res) => {
     res.status(500).json({ error: 'Could not read that. Fill the form by hand.' });
   }
 });
+// What the task popup shows: the students it is about, their Tutoring CRM pages and what is still unresolved
+app.get('/api/tracker/task/:id', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const task = TeamTasks.load().find((x) => x.id === req.params.id);
+  if (!task || !trackerSees(req, task)) return res.status(404).json({ error: 'Task not found. Reload the page.' });
+  const A = loadLatest() || {};
+  let list = (task.students || []).map((s) => ({ ...s, matched: 'attached' }));
+  // older or hand-written tasks have no student attached: look for a name in the task text among the assignee's students
+  if (!list.length && !task.auto) {
+    const mine = trackerStudents(req);
+    const theirs = mine.filter((s) => s.tm === task.assignee);
+    const people = trackerPeople().map((p) => ({ name: p.name, aliases: [p.name.split(' ')[0]] }));
+    const found = findStudents(task.title + '. ' + (task.details || ''), theirs.length ? theirs : mine, people, [task.assignee]);
+    list = found.flatMap((g) => g.matches.map((m) => ({ id: m.id, name: m.name, grade: m.grade, school: m.school, tm: m.tm, matched: g.matches.length > 1 ? 'possible' : 'text' }))).slice(0, 6);
+  }
+  const tickets = ((A.tickets && A.tickets.all) || []).filter((x) => x.resolved !== 'Yes');
+  const feedback = (A.pcf || []).filter((x) => x.taskStatus !== 'Completed');
+  const students = list.map((s) => {
+    const crm = M.stuLink(s.id);
+    // a TM never gets the concern details of another TM's student
+    if (!studentAllowed(req, s.id)) return { ...s, crm, restricted: true, concerns: [] };
+    const seen = new Set();
+    const concerns = tickets
+      .filter((x) => Number(x.studentId) === Number(s.id) && !seen.has(x.feedbackId) && seen.add(x.feedbackId))
+      .map((x) => ({ type: x.feedbackType || 'Concern', category: x.category || '', state: x.currentState || '', owner: x.owner || '', age: x.ageDays == null ? null : x.ageDays, link: `${crm}?activeTab=concernsAndRequests&focusFeedback=${encodeURIComponent(x.feedbackId)}` }));
+    for (const x of feedback.filter((y) => Number(y.studentId) === Number(s.id)))
+      concerns.push({ type: 'Negative feedback', category: x.className || '', state: x.taskStatus || '', owner: '', age: null, rating: x.feedbackRating, link: crm });
+    return { ...s, crm, restricted: false, concerns };
+  });
+  res.json({ id: task.id, students, dataAt: A.fetchedAt || null });
+});
+
 app.get('/api/tracker', (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);

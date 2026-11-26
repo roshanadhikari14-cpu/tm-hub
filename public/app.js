@@ -866,7 +866,7 @@ async function tutors() {
 // ---------- Task tracker ----------
 // A board of four lanes (upcoming, due today, past due, completed) with the assignee's photo on every card,
 // remarks on each task, drag to complete, and a little celebration when something is finished.
-const tkState = { who: '', draft: '', open: new Set(), seen: new Set() };
+const tkState = { who: '', draft: '', popup: '', open: new Set(), seen: new Set() };
 // the popup is shared with other screens: drop the wide style when it closes
 if ($('#modal')) new MutationObserver(() => $('#modal').hidden && $('#modalCard').classList.remove('tk-wide')).observe($('#modal'), { attributes: true, attributeFilter: ['hidden'] });
 const tkDay = (d) => new Date(d.length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: d.length === 10 ? 'UTC' : 'Asia/Kolkata' });
@@ -957,7 +957,6 @@ async function tracker() {
       <ul class="tk-items" ${tkState.open.has(key) ? '' : 'hidden'}>${t.auto.items.map((x) => `<li class="${left.has(x.id) ? '' : 'ok'}"><span>${left.has(x.id) ? '○' : '✓'}</span><div>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div></li>`).join('')}</ul></div>`;
   };
   const card = (t, i) => {
-    const open = tkState.open.has(t.id);
     const fresh = !tkState.seen.has(t.id);
     return `<article class="tk-card ${t.lane} ${fresh ? 'tk-in' : ''}" style="--i:${i}" data-id="${t.id}" draggable="${canFinish(t) ? 'true' : 'false'}">
       <div class="tk-top"><span class="tk-pill p-${t.priority.toLowerCase()}">${esc(t.priority)}</span><span class="tk-date">Assigned ${tkDay(t.assignedAt)}</span>
@@ -970,16 +969,13 @@ async function tracker() {
       ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
       ${t.auto ? autoBlock(t) : ''}
       ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
+      ${t.remarks.length ? `<p class="tk-last"><b>${esc(t.remarks[t.remarks.length - 1].text)}</b><small>${esc(t.remarks[t.remarks.length - 1].by.split(' ')[0])}</small></p>` : ''}
       <div class="tk-actions">
-        <button class="tk-btn ${open ? 'on' : ''}" data-tk="notes">💬 Remarks${t.remarks.length ? ` <em>${t.remarks.length}</em>` : ''}</button>
+        <button class="tk-btn" data-tk="notes">💬 Remarks${t.remarks.length ? ` <em>${t.remarks.length}</em>` : ''}</button>
         ${t.lane !== 'done' && canFinish(t) ? '<button class="tk-btn go" data-tk="done">✓ Complete</button>' : ''}
         ${t.lane === 'done' && mine(t) ? '<button class="tk-btn" data-tk="reopen">↺ Reopen</button>' : ''}
         ${mine(t) ? '<button class="tk-btn bin" data-tk="delete" title="Delete">🗑</button>' : ''}
       </div>
-      <div class="tk-thread ${open ? 'on' : ''}"><div>
-        ${t.remarks.map((r) => `<div class="tk-note">${tkAvatar(person(r.by), r.by, 'sm')}<p><b>${esc(r.by.split(' ')[0])}</b> ${esc(r.text)}<small>${new Date(r.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></p></div>`).join('') || '<p class="tk-small">No remarks yet.</p>'}
-        <form class="tk-add"><input maxlength="1000" placeholder="Write a remark…" aria-label="Remark"><button type="submit" class="tk-btn go">Add</button></form>
-      </div></div>
     </article>`;
   };
 
@@ -1040,6 +1036,65 @@ async function tracker() {
     };
   };
   const priorityField = (now) => `<label>Priority<select id="tkPri">${['High', 'Medium', 'Low'].map((p) => `<option ${p === now ? 'selected' : ''}>${p}</option>`).join('')}</select></label>`;
+  // everything about one task: Tutoring CRM links, what is unresolved for the student, and the remarks
+  const popup = async (t) => {
+    tkState.popup = t.id;
+    const when = (v) => new Date(v).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+    const note = (who, text, at, tag) => `<div class="tk-note">${tkAvatar(person(who), who, 'sm')}<p><b class="tk-said">${esc(text)}</b><small>${esc(who)}${at ? ' · ' + when(at) : ''}${tag ? ' · ' + tag : ''}</small></p></div>`;
+    $('#modalCard').innerHTML = `<h3>${esc(t.title)}</h3>
+      <div class="tk-two"><div class="tk-col">
+      <div class="tk-top"><span class="tk-pill p-${t.priority.toLowerCase()}">${esc(t.priority)}</span>${dueLine(t)}</div>
+      <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>assigned by ${esc(t.createdBy)} on ${tkDay(t.assignedAt)}</small></div></div>
+      ${t.details ? `<p class="tk-details">${esc(t.details)}</p>` : ''}
+      <h4 class="tk-h">Student and unresolved concerns</h4><div id="tkPopStu">${loader({ small: true, text: 'Looking up the student' })}</div>
+      </div><div class="tk-col"><h4 class="tk-h">Remarks</h4>
+      ${t.remarks.map((x) => note(x.by, x.text, x.at)).join('')}${t.comment ? note(t.doneBy, t.comment, t.doneAt, 'on completion') : ''}${!t.remarks.length && !t.comment ? '<p class="tk-small">No remarks yet.</p>' : ''}
+      <form class="tk-add" id="tkPopAdd"><input maxlength="1000" placeholder="Write a remark…" aria-label="Remark"><button type="submit" class="tk-btn go">Add</button></form></div></div>
+      <div class="actions"><button type="button" class="btn btn-ghost" id="tkNo">Close</button>${t.lane !== 'done' && canFinish(t) ? '<button type="button" class="btn btn-primary" id="tkPopDone">✓ Mark complete</button>' : ''}</div>`;
+    $('#modalCard').classList.add('tk-wide');
+    $('#modal').hidden = false;
+    $('#tkNo').onclick = () => {
+      tkState.popup = '';
+      $('#modal').hidden = true;
+    };
+    if ($('#tkPopDone'))
+      $('#tkPopDone').onclick = () => {
+        tkState.popup = '';
+        finish(t);
+      };
+    $('#tkPopAdd').onsubmit = (e) => {
+      e.preventDefault();
+      const input = e.target.querySelector('input');
+      if (input.value.trim().length < 2) return toast('Write the remark first.', 'err');
+      input.blur();
+      send({ action: 'remark', id: t.id, text: input.value }, 'Remark added.', () => (tkState.reopen = t.id));
+    };
+    let d;
+    try {
+      d = await api('/api/tracker/task/' + encodeURIComponent(t.id));
+    } catch (err) {
+      if (tkState.popup === t.id && $('#tkPopStu')) $('#tkPopStu').innerHTML = '<p class="tk-small">' + esc(err.message) + '</p>';
+      return;
+    }
+    if (tkState.popup !== t.id || !$('#tkPopStu') || $('#modal').hidden) return;
+    $('#tkPopStu').innerHTML =
+      d.students
+        .map(
+          (s) => `<section class="tk-case"><div class="tk-case-top"><div><b>🎓 ${esc(s.name)}</b><small>${esc([s.grade ? 'Class ' + s.grade : '', s.school, 'ID ' + s.id].filter(Boolean).join(' · '))}${s.matched === 'possible' ? ' · possible match from the task text' : s.matched === 'text' ? ' · matched from the task text' : ''}</small></div>
+            <a class="btn btn-primary" href="${esc(s.crm)}" target="_blank" rel="noopener">Open in Tutoring CRM ↗</a></div>
+            ${s.restricted
+              ? '<p class="tk-small">Another TM’s student: concerns are not shown.</p>'
+              : s.concerns.map((c) => `<a class="tk-concern" href="${esc(c.link)}" target="_blank" rel="noopener"><span class="tk-pill p-high">${esc(c.type)}</span><span><b>${esc(c.category || c.state || 'Open')}</b><small>${esc([c.state, c.owner ? 'with ' + c.owner : '', c.age == null ? '' : c.age + ' day' + (c.age === 1 ? '' : 's') + ' old', c.rating ? c.rating + '★' : ''].filter(Boolean).join(' · '))}</small></span><i>↗</i></a>`).join('') || '<p class="tk-small">No unresolved concern or negative feedback in the last two weeks.</p>'}
+            <button type="button" class="tk-link" data-sid="${s.id}" data-name="${esc(s.name)}">Parents, attendance and PTMs</button></section>`
+        )
+        .join('') || '<p class="tk-small">No student is attached to this task. Edit or create the task with a student to see their details here.</p>';
+    $('#tkPopStu').onclick = (e) => {
+      const b = e.target.closest('button[data-sid]');
+      if (!b) return;
+      tkState.popup = '';
+      studentCard(Number(b.dataset.sid), b.dataset.name);
+    };
+  };
   const finish = (t) => {
     const el = $(`.tk-card[data-id="${t.id}"]`);
     const box = el ? el.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
@@ -1097,14 +1152,14 @@ async function tracker() {
     modal(
       p ? '✨ Check before creating' : '＋ Assign a task',
       `<div class="tk-warn" id="tkWarn" hidden></div>
-       <label>Task type<select id="tkType"><option value="">My own task</option>${(j.categories || []).map((c) => `<option value="${c.key}">${esc(c.label)} (from Lighthouse)</option>`).join('')}</select></label><p class="tk-small" id="tkPending" hidden></p>
+       <div class="tk-col"><label>Task type<select id="tkType"><option value="">My own task</option>${(j.categories || []).map((c) => `<option value="${c.key}">${esc(c.label)} (from Lighthouse)</option>`).join('')}</select></label><p class="tk-small" id="tkPending" hidden></p>
        <label id="tkTitleRow">Subject<input id="tkTitle" maxlength="200" placeholder="What needs to be done" value="${p ? esc(p.subject) : ''}"></label>
        <label>Description<textarea id="tkDetails" rows="${p ? 6 : 3}" maxlength="2000" placeholder="Optional">${p ? esc(tkCompose(p, picked())) : ''}</textarea></label>
-       <div id="tkStuRow"><div class="tk-lbl">Students</div><div id="tkStuBox"></div>
+       </div><div class="tk-col"><div id="tkStuRow"><div class="tk-lbl">Students</div><div id="tkStuBox"></div>
          <input id="tkStuAdd" list="tkStuList" autocomplete="off" placeholder="Add a student: type a name or ID"><datalist id="tkStuList">${j.students.map((s) => `<option value="${esc(s.name + ' · ' + s.id)}">${esc([s.grade ? 'Class ' + s.grade : '', s.school].filter(Boolean).join(' · '))}</option>`).join('')}</datalist></div>
        <div class="tk-lbl">Assign to${tag(p && p.assumed.assignee)} <small>(pick one or more)</small> <button type="button" class="tk-btn" id="tkAll">Select all TMs</button></div><div class="tk-pick">${j.people.map((x) => `<label title="${esc(x.name)}"><input type="checkbox" name="tkTo" value="${esc(x.name)}" ${wanted.includes(x.name) ? 'checked' : ''}>${tkAvatar(x, x.name, 'lg')}<small>${esc(x.name.split(' ')[0])}</small></label>`).join('')}</div>
        <div class="tk-row"><label>Due date${tag(p && p.assumed.date)}<input id="tkDue" type="date" min="${j.today}" value="${p && p.due >= j.today ? p.due : j.today}"></label><label>Time${tag(p && p.assumed.time)}<input id="tkTime" type="time" value="${p ? p.time : ''}"></label>${priorityField(p ? p.priority : 'Medium')}</div>
-       <p class="note">A mail goes to the person the task is assigned to.</p>`,
+       <p class="note">A mail goes to the person the task is assigned to.</p></div>`,
       p ? 'Go – create task' : 'Assign and send mail',
       () => {
         const open = groups.filter((g) => effective(g) === null);
@@ -1285,7 +1340,11 @@ async function tracker() {
     const board = $('.tk-board');
     board.onclick = (e) => {
       const btn = e.target.closest('[data-tk]');
-      if (!btn) return;
+      if (!btn) {
+        const hit = e.target.closest('.tk-card');
+        if (hit && !e.target.closest('a, button, input, form, .tk-auto')) popup(byId(hit.dataset.id));
+        return;
+      }
       const el = btn.closest('.tk-card');
       const t = byId(el.dataset.id);
       const what = btn.dataset.tk;
@@ -1298,13 +1357,8 @@ async function tracker() {
         const list = el.querySelector('.tk-items');
         list.hidden = !tkState.open.has(key);
         btn.textContent = btn.textContent.replace(list.hidden ? 'hide' : 'show', list.hidden ? 'show' : 'hide');
-      } else if (what === 'notes') {
-        const on = !tkState.open.has(t.id);
-        tkState.open[on ? 'add' : 'delete'](t.id);
-        btn.classList.toggle('on', on);
-        el.querySelector('.tk-thread').classList.toggle('on', on);
-        if (on) setTimeout(() => el.querySelector('.tk-add input').focus(), 220);
-      } else if (what === 'done') finish(t);
+      } else if (what === 'notes') popup(t);
+      else if (what === 'done') finish(t);
       else if (what === 'reopen') send({ action: 'reopen', id: t.id }, 'Reopened.');
       else if (what === 'remind') window.confirm('Send the task mail to ' + t.assignee + '?') && send({ action: 'remind', id: t.id }, 'Done.');
       else if (what === 'delete') window.confirm('Delete this task?') && send({ action: 'delete', id: t.id }, 'Deleted.');
@@ -1315,14 +1369,6 @@ async function tracker() {
           'Save',
           () => send({ action: 'edit', id: t.id, title: $('#tkTitle').value, details: $('#tkDetails').value, due: $('#tkDue').value, dueTime: $('#tkTime').value, priority: $('#tkPri').value }, 'Saved.')
         );
-    };
-    board.onsubmit = (e) => {
-      e.preventDefault();
-      const el = e.target.closest('.tk-card');
-      const input = e.target.querySelector('input');
-      if (input.value.trim().length < 2) return toast('Write the remark first.', 'err');
-      input.blur();
-      send({ action: 'remark', id: el.dataset.id, text: input.value }, 'Remark added.');
     };
     board.ondragstart = (e) => {
       const el = e.target.closest('.tk-card');
@@ -1355,6 +1401,11 @@ async function tracker() {
     };
   }
   paint();
+  if (tkState.reopen) {
+    const again = byId(tkState.reopen);
+    tkState.reopen = '';
+    if (again) popup(again);
+  }
 }
 const routes = { dashboard, team, tm, tasks, tracker, ptm, students, renewals, tutors, reports, schedule, settings };
 let navToken = 0;

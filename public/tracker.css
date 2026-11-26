@@ -116,7 +116,6 @@
 .tk-quick textarea { flex: 1; min-width: 0; border: 1px solid #dfe3ec; border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; resize: vertical; transition: border-color 0.2s, box-shadow 0.2s; }
 .tk-quick textarea:focus { border-color: #2b2f8f; box-shadow: 0 0 0 3px #eef0ff; outline: none; }
 .tk-quick small { display: block; margin-top: 6px; color: var(--ink-3); font-size: 11.5px; }
-#modalCard.tk-wide { width: min(640px, 94vw); max-width: 94vw; max-height: 90vh; overflow-y: auto; }
 .tk-warn { background: #fff7e0; border: 1px solid #f5d37a; border-radius: 10px; padding: 8px 12px; font-size: 13px; color: #7a5200; }
 .tk-warn p { margin: 3px 0; }
 .tk-assumed { font-style: normal; font-weight: 600; font-size: 11px; color: #9a6700; }
@@ -141,3 +140,41 @@ button.tk-stu:hover { transform: translateY(-2px); background: #e6eaff; }
 .tk-h { margin: 14px 0 4px; font-size: 13px; }
 .tk-line { margin: 3px 0; font-size: 13px; }
 @media (max-width: 640px) { .tk-quick > div { flex-direction: column; } .tk-row, .tk-facts { grid-template-columns: 1fr; } }
+
+/* task form and task popup fill the whole tab */
+#modal:has(#modalCard.tk-wide) { padding: 0; }
+#modalCard.tk-wide { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; overflow-y: auto; display: flex; flex-direction: column; box-sizing: border-box; padding: 22px max(20px, calc((100vw - 1240px) / 2)) 0; }
+#modalCard.tk-wide > h3 { font-size: 22px; margin: 0 0 12px; }
+#modalCard.tk-wide .form, #modalCard.tk-wide .tk-two { display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; align-items: start; align-content: start; }
+#modalCard.tk-wide .tk-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+#modalCard.tk-wide .tk-two .tk-col { gap: 8px; }
+#modalCard.tk-wide .form > .tk-warn { grid-column: 1 / -1; margin-bottom: 4px; }
+#modalCard.tk-wide .form input:not([type=radio]):not([type=checkbox]), #modalCard.tk-wide .form select, #modalCard.tk-wide .form textarea { width: 100%; box-sizing: border-box; border: 1px solid #cfd6e4; border-radius: 9px; padding: 9px 11px; font: inherit; background: #fff; }
+#modalCard.tk-wide .form #tkDetails { min-height: 170px; flex: 1; }
+#modalCard.tk-wide .form #tkStuAdd { margin-top: 8px; }
+#modalCard.tk-wide .tk-match { max-height: 34vh; }
+#modalCard.tk-wide .tk-details { white-space: pre-wrap; font-size: 13.5px; }
+#modalCard.tk-wide > .actions { position: sticky; bottom: 0; margin-top: auto; padding: 14px 0; background: #fff; border-top: 1px solid #eef0f4; justify-content: flex-end; }
+.tk-case { border: 1px solid #e6e9ef; border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.tk-case-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tk-case-top b { display: block; font-size: 14.5px; }
+.tk-case-top small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.tk-concern { display: flex; gap: 10px; align-items: center; text-decoration: none; color: inherit; background: #fff5f5; border-radius: 9px; padding: 8px 10px; margin-top: 8px; transition: transform 0.15s; }
+.tk-concern:hover { transform: translateX(3px); }
+.tk-concern span b { display: block; font-size: 13px; }
+.tk-concern span small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.tk-concern i { margin-left: auto; font-style: normal; color: #2b2f8f; }
+.tk-said { display: block; font-weight: 700; font-size: 13.5px; }
+.tk-last { margin: 8px 0 0; background: #f5f6fa; border-radius: 9px; padding: 6px 10px; font-size: 12.5px; }
+.tk-last small { display: block; color: var(--ink-3); font-size: 10.5px; }
+.tk-card { cursor: pointer; }
+@media (max-width: 800px) { #modalCard.tk-wide .form, #modalCard.tk-wide .tk-two { grid-template-columns: 1fr; row-gap: 14px; } }
+
+/* the two columns use the whole width */
+#modalCard.tk-wide > .form, #modalCard.tk-wide > .tk-two { width: 100%; max-width: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: none; }
+#modalCard.tk-wide .tk-row { grid-template-columns: 1.2fr 1fr 1fr; }
+#modalCard.tk-wide .form label { display: flex; flex-direction: column; gap: 5px; }
+#modalCard.tk-wide .form .tk-match label, #modalCard.tk-wide .form .tk-pick label { gap: 8px; }
+#modalCard.tk-wide .form .tk-match label { flex-direction: row; }
+#modalCard.tk-wide .form .tk-pick label { align-items: center; gap: 4px; }
+@media (max-width: 800px) { #modalCard.tk-wide > .form, #modalCard.tk-wide > .tk-two { grid-template-columns: minmax(0, 1fr); } }
