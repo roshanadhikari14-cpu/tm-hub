@@ -388,6 +388,18 @@ const userName = (req) => {
   const first = String(req.user).split('@')[0].split(/[._0-9-]+/)[0];
   return first ? first[0].toUpperCase() + first.slice(1) : '';
 };
+// Changes with every update of the site, so open tabs know to reload themselves
+const VERSION =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  (() => {
+    try {
+      const h = crypto.createHash('md5');
+      for (const f of ['index.html', 'app.js', 'app.css', 'premium.js', 'premium.css', 'unslop.css']) h.update(fs.readFileSync(path.join(ROOT, 'public', f)));
+      return h.digest('hex');
+    } catch {
+      return '';
+    }
+  })();
 const status = (req) => {
   const A = loadLatest();
   const c = loadConfig();
@@ -398,6 +410,7 @@ const status = (req) => {
     storage: !CLOUD || persist.enabled,
     user: req ? req.user : null,
     userName: userName(req),
+    version: VERSION,
     owner: req ? isOwner(req) : true,
     role: req ? req.role || 'owner' : 'owner',
     myTm: req ? req.myTm || '' : '',

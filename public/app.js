@@ -1826,13 +1826,36 @@ async function settings() {
 view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
 route();
 setTimeout(swrWarm, 2500); // once per visit; no repeating timer, to keep server and database traffic low
-setInterval(async () => {
+// A tab left open keeps the old look and code, so it reloads itself after the site is updated; never while someone is
+// typing, has a window or a filter open, has unsaved text, or a report is being made.
+let seenVersion = '';
+function reloadIfUpdated(version) {
+  if (!version) return;
+  if (!seenVersion) {
+    seenVersion = version;
+    return;
+  }
+  if (version === seenVersion) return;
+  const el = document.activeElement;
+  const busy =
+    reportBusy ||
+    (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) ||
+    ($('#modal') && !$('#modal').hidden) ||
+    document.querySelector('.ms-pop:not([hidden])') ||
+    [...document.querySelectorAll('textarea')].some((t) => t.value.trim());
+  if (!busy) location.reload(); // otherwise tried again at the next check
+}
+async function keepCurrent() {
   // Quietly keep the sidebar status current.
   try {
     S.status = await api('/api/status');
     paintChrome();
+    reloadIfUpdated(S.status.version);
   } catch {}
-}, 60000);
+}
+keepCurrent();
+setInterval(keepCurrent, 60000);
+document.addEventListener('visibilitychange', () => !document.hidden && keepCurrent());
 
 // ---------- Speak on hover ----------
 // Reads a TM's name and today's numbers aloud when the pointer rests on them. If the TM has
