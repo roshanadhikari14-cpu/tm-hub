@@ -803,6 +803,59 @@ app.post('/api/cron/renewals-push', express.text({ type: '*/*', limit: '8mb' }),
   fs.writeFileSync(RENEWALS_FILE, JSON.stringify({ at: new Date().toISOString(), source: b.source || 'Vantage · Renewal Discussion', rows }));
   res.json({ ok: true, count: rows.length });
 });
+// Everything the owner would want to look up if the hub is down, for the daily copy on the owner's laptop
+// (tools/backup/backup.js). Same private key as the Vantage push; POST only, so the key is never in an address.
+app.post('/api/cron/backup', express.text({ type: '*/*', limit: '10kb' }), async (req, res) => {
+  let saved, b;
+  try {
+    saved = JSON.parse(fs.readFileSync(RENEWAL_KEY_FILE, 'utf8'));
+    b = JSON.parse(typeof req.body === 'string' ? req.body : '{}');
+  } catch {
+    return res.status(403).json({ error: 'No key.' });
+  }
+  if (!b.key || keyHash(b.key) !== saved.hash) return res.status(403).json({ error: 'Wrong key.' });
+  const errors = [];
+  const safe = async (name, fn, fallback) => {
+    try {
+      return await Promise.race([fn(), new Promise((_, no) => setTimeout(() => no(new Error('took too long')), 25000))]);
+    } catch (e) {
+      errors.push(name + ': ' + e.message);
+      return fallback;
+    }
+  };
+  let A = loadLatest();
+  if ((!A || A.date !== istNow().date) && (process.env.LIGHTHOUSE_AUTH || process.env.LIGHTHOUSE_COOKIE)) {
+    await safe('refresh', () => refresh(), null);
+    A = loadLatest();
+  }
+  const students = [];
+  for (const m of team()) for (const x of (A && A.students && A.students[M.lhName(m)]) || []) students.push({ ...x, tm: m.name });
+  const today = istDate();
+  const [parents, leaves, meetings] = await Promise.all([
+    safe('parents', () => Parents.ensure(students.map((x) => x.id)), {}),
+    safe('leaves', () => TutorLeaves.load(true), { leaves: [] }),
+    safe('ptms', () => ptmMeetings(addDays(today, -30), addDays(today, 14)), []),
+  ]);
+  const remarks = Remarks.load();
+  const board_ = await safe('tasks', async () => board('progress'), null);
+  res.json({
+    at: new Date().toISOString(),
+    date: today,
+    dataAt: A ? A.fetchedAt : null,
+    errors,
+    students,
+    parents,
+    renewals: loadRenewals(),
+    tutors: loadTutors(),
+    leaves: leaves.leaves,
+    ptms: meetings.map((m) => ({ ...m, remark: remarks[m.id] || null })),
+    remarks,
+    tasks: M.TASKS,
+    board: board_,
+    access: Access.list(),
+  });
+});
+
 // Owner: load a newer export of the same list (rows in the same shape).
 app.post('/api/renewals/import', (req, res) => {
   if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can load renewal data.' });
