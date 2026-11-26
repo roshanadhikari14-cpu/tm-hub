@@ -1682,6 +1682,10 @@ async function settings() {
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
+    ${st.owner ? `<div class="card rise" id="lhCard" style="margin-bottom:18px"><h3>🔐 Lighthouse login</h3><div class="sub" style="margin-bottom:12px">${st.lighthouse ? (st.refreshError ? `<span style="color:var(--red)">${esc(st.refreshError)}</span>` : `Connected · last data ${esc(fmtTime(st.dataAt))}`) : '<b style="color:var(--red)">Not connected</b>'}</div>
+      <div class="form"><label>Authorization value<textarea id="lhAuth" rows="3" autocomplete="off" placeholder="Bearer eyJ…"></textarea></label>
+        <p class="note">In Chrome open lighthouse.uprio.com → press F12 → <b>Network</b> tab → reload the page → click any request to backend.uprio.com → under <b>Request Headers</b> copy the whole <b>authorization</b> value and paste it here. Paste a fresh one whenever Refresh says the login was refused.</p>
+        <div><button class="btn btn-primary" id="saveLh">Save login</button></div></div></div>` : ''}
     <div class="grid g-2" style="grid-template-columns:1fr 1fr">
       <div class="card rise" style="--i:1"><h3>Email (Gmail)</h3><div class="sub" style="margin-bottom:12px">${g.email ? `Signed in with Google · sending as <b>${esc(g.email)}</b>` : st.email ? `Sending as ${esc(st.sender)} with an App Password` : 'Not set up'}</div>
         <div class="form">
@@ -1760,6 +1764,16 @@ async function settings() {
         <p class="note" style="margin:10px 0 0">Hub mailbox (used for reminders): ${j.hub ? esc(j.hub) : 'not connected'}</p>`;
     })
     .catch((e) => ($('#mbBox') && ($('#mbBox').textContent = e.message)));
+  if ($('#saveLh')) $('#saveLh').onclick = async () => {
+    try {
+      await api('/api/login', { body: { auth: $('#lhAuth').value } });
+      $('#lhAuth').value = '';
+      toast('Lighthouse login saved. Loading data…', 'ok');
+      $('#refreshBtn').click();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  };
   $('#saveEm').onclick = async () => {
     try {
       await api('/api/email-settings', { body: { fromName: $('#emName').value } });
