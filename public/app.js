@@ -37,7 +37,28 @@ function cachedApi(path, ttl = 120000) {
 // Pages that open at once: the last answer (kept on this device for this person) is drawn straight away, the fresh
 // one is fetched behind it and the page is drawn again only if something changed (never while someone is typing).
 const swrMem = new Map();
-const swrKey = (path) => 'swr:' + ((S.status && S.status.user) || '') + ':' + path;
+// the person's address is remembered, so a page opened directly finds its saved copy before the sign-in answer is in
+const swrUser = () => {
+  if (S.status && S.status.user) {
+    try {
+      localStorage.setItem('swr-user', S.status.user);
+    } catch {}
+    return S.status.user;
+  }
+  try {
+    return localStorage.getItem('swr-user') || '';
+  } catch {
+    return '';
+  }
+};
+const swrKey = (path) => 'swr:' + swrUser() + ':' + path;
+function swrPeek(path) {
+  try {
+    return JSON.parse(swrMem.get(swrKey(path)) || localStorage.getItem(swrKey(path)));
+  } catch {
+    return null;
+  }
+}
 async function swrFetch(path, rerender, routeHash) {
   const key = swrKey(path);
   let raw = swrMem.get(key);
@@ -71,20 +92,21 @@ async function swrWarm() {
   const st = S.status;
   if (!st || document.hidden) return;
   const paths = st.role === 'viewer' ? ['/api/tutors', '/api/tutor-leaves'] : ['/api/students-all', '/api/renewals', '/api/tutors', '/api/tutor-leaves'];
-  for (const p of paths) {
-    try {
-      const j = await api(p);
-      const s = JSON.stringify(j);
-      swrMem.set(swrKey(p), s);
-      localStorage.setItem(swrKey(p), s);
-    } catch {}
-  }
+  await Promise.all(
+    paths.map(async (p) => {
+      try {
+        const s = JSON.stringify(await api(p));
+        swrMem.set(swrKey(p), s);
+        localStorage.setItem(swrKey(p), s);
+      } catch {}
+    })
+  );
 }
 // Shown instead of the hub when it is on the internet and nobody is signed in.
 function showLogin(j) {
   // signed out: forget the saved page data of this device
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('swr:')) localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith('swr:') || k === 'swr-user') localStorage.removeItem(k);
   } catch {}
   swrMem.clear();
   if ($('#loginScreen')) return;
@@ -676,10 +698,12 @@ async function tutors() {
     return;
   }
   // leaves come live from Lighthouse; the page still works without them
-  let lv = null;
-  try {
-    lv = await swrFetch('/api/tutor-leaves', tutors, '#/tutors');
-  } catch {}
+  const lv = swrPeek('/api/tutor-leaves');
+  const lvLive = swrFetch('/api/tutor-leaves', tutors, '#/tutors');
+  // first visit: draw the tutors now and add the leaves when they arrive
+  Promise.resolve(lvLive)
+    .then(() => !lv && location.hash.startsWith('#/tutors') && swrPeek('/api/tutor-leaves') && tutors())
+    .catch(() => {});
   const rows = j.rows;
   const now = Date.now();
   const lvDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -1825,7 +1849,7 @@ async function settings() {
 // ---------- start ----------
 view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
 route();
-setTimeout(swrWarm, 2500); // once per visit; no repeating timer, to keep server and database traffic low
+setTimeout(swrWarm, 600); // once per visit; no repeating timer, to keep server and database traffic low
 // A tab left open keeps the old look and code, so it reloads itself after the site is updated; never while someone is
 // typing, has a window or a filter open, has unsaved text, or a report is being made.
 let seenVersion = '';

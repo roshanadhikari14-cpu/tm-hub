@@ -17,6 +17,7 @@ const persist = require('./lib/persist');
 const Remarks = require('./lib/ptmRemarks');
 const PRem = require('./lib/ptmReminders');
 const TutorLeaves = require('./lib/tutorLeaves');
+const DiskCache = require('./lib/diskCache');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -711,10 +712,15 @@ async function renewalPtms() {
   let hit = ptmRanges.get(key);
   const loadIt = async () => {
     const h = { at: Date.now(), key, data: await ptmMeetings(from, today) };
+    DiskCache.put('ptm-renewals', h.data);
     ptmRanges.set(key, h);
     if (ptmRanges.size > 12) ptmRanges.delete(ptmRanges.keys().next().value);
     return h;
   };
+  if (!hit) {
+    const saved = DiskCache.get('ptm-renewals'); // a fresh server answers from the last copy
+    if (saved) ptmRanges.set(key, (hit = { at: saved.at, key, data: saved.data }));
+  }
   if (!hit) hit = await loadIt();
   else if (Date.now() - hit.at > 3 * 60 * 1000 && !hit.busy) {
     hit.busy = true; // the saved list is used at once; a fresh one is ready for the next view
@@ -970,7 +976,14 @@ app.get('/api/students-all', async (req, res) => {
   const today = istDate();
   let err = '';
   try {
-    const load30 = async () => (ptm30 = { at: Date.now(), data: await ptmMeetings(addDays(today, -29), today) });
+    const load30 = async () => {
+      ptm30 = { at: Date.now(), data: await ptmMeetings(addDays(today, -29), today) };
+      DiskCache.put('ptm-30', ptm30.data);
+    };
+    if (!ptm30.data) {
+      const saved = DiskCache.get('ptm-30');
+      if (saved) ptm30 = { at: saved.at, data: saved.data };
+    }
     if (!ptm30.data) await load30();
     else if (Date.now() - ptm30.at > 3 * 60 * 1000 && !ptm30.busy) {
       ptm30.busy = true;
