@@ -23,9 +23,9 @@
 .tk-av.lg { width: 52px; height: 52px; }
 .tk-ini { display: inline-grid; place-items: center; background: #2b2f8f; color: #fff; font-size: 12px; font-weight: 700; }
 
-.tk-board { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 6px; align-items: start; }
+.tk-board { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 6px; align-items: start; }
 .tk-lane { --tone: #1d6fb8; --soft: #e1f1fd; background: #fff; border: 1px solid #e6e9ef; border-radius: 14px; overflow: hidden; transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s; animation: tkLane 0.4s both; }
-.tk-lane:nth-child(2) { animation-delay: 0.06s; } .tk-lane:nth-child(3) { animation-delay: 0.12s; } .tk-lane:nth-child(4) { animation-delay: 0.18s; }
+.tk-lane:nth-child(2) { animation-delay: 0.06s; } .tk-lane:nth-child(3) { animation-delay: 0.12s; } 
 @keyframes tkLane { from { opacity: 0; transform: translateY(14px); } }
 .tk-lane.amber { --tone: #9a6700; --soft: #fff3c4; }
 .tk-lane.red { --tone: #b42318; --soft: #fee2e2; }
@@ -94,5 +94,7 @@
 .tk-bit { position: fixed; width: 8px; height: 12px; border-radius: 2px; z-index: 100; pointer-events: none; animation: tkBurst 1.1s cubic-bezier(0.2, 0.8, 0.4, 1) forwards; }
 @keyframes tkBurst { to { transform: translate(var(--dx), calc(var(--dy) + 120px)) rotate(var(--r)); opacity: 0; } }
 
-@media (max-width: 760px) { .tk-board { grid-template-columns: repeat(4, 82vw); } .tk-new { width: 100%; } }
+@media (max-width: 760px) { .tk-board { grid-template-columns: repeat(3, 82vw); } .tk-new { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .tk-lane, .tk-card, .tk-card.tk-in, .tk-person em, .tk-gauge .g-b { animation: none !important; transition: none !important; } }
+
+.tk-now { margin: 4px 0 0; color: #9a6700; font-weight: 700; }

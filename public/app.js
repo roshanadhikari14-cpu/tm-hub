@@ -869,13 +869,13 @@ async function tutors() {
 const tkState = { who: '', open: new Set(), seen: new Set() };
 const tkDay = (d) => new Date(d.length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: d.length === 10 ? 'UTC' : 'Asia/Kolkata' });
 const tkDays = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+// open tasks that are not late share one lane, so a task due later is never out of sight
 const TK_LANES = [
-  ['next', 'Upcoming', 'blue'],
-  ['today', 'Due today', 'amber'],
+  ['today', 'To do', 'amber'],
   ['late', 'Past due date', 'red'],
   ['done', 'Completed', 'green'],
 ];
-const tkLane = (t, today) => (t.status === 'done' ? 'done' : t.due < today ? 'late' : t.due === today ? 'today' : 'next');
+const tkLane = (t, today) => (t.status === 'done' ? 'done' : t.due < today ? 'late' : 'today');
 const tkAvatar = (p, name, cls) =>
   p && p.photo
     ? `<img class="tk-av ${cls || ''}" src="/photos/${esc(p.photo)}" alt="" loading="lazy">`
@@ -932,7 +932,7 @@ async function tracker() {
   const card = (t, i) => {
     const open = tkState.open.has(t.id);
     const fresh = !tkState.seen.has(t.id);
-    return `<article class="tk-card ${t.lane} ${fresh ? 'tk-in' : ''}" style="--i:${i}" data-id="${t.id}" draggable="${canFinish(t) ? 'true' : 'false'}">
+    return `<article class="tk-card ${t.lane === 'today' && t.due > j.today ? 'next' : t.lane} ${fresh ? 'tk-in' : ''}" style="--i:${i}" data-id="${t.id}" draggable="${canFinish(t) ? 'true' : 'false'}">
       <div class="tk-top"><span class="tk-pill p-${t.priority.toLowerCase()}">${esc(t.priority)}</span><span class="tk-date">Assigned ${tkDay(t.assignedAt)}</span>
         ${mine(t) && t.assignee !== j.me && t.lane !== 'done' ? `<button class="tk-ico" data-tk="remind" title="${t.mail === 'sent' ? 'Mailed. Send the mail again' : 'Send the task mail'}">@</button>` : ''}</div>
       <h4>${esc(t.title)}</h4>
@@ -940,6 +940,7 @@ async function tracker() {
       <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>by ${esc(t.createdBy)}</small></div></div>
       <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
       ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
+      ${t.lane === 'today' && t.due === j.today ? '<p class="tk-small tk-now">Due today</p>' : ''}
       ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
       <div class="tk-actions">
         <button class="tk-btn ${open ? 'on' : ''}" data-tk="notes">💬 Remarks${t.remarks.length ? ` <em>${t.remarks.length}</em>` : ''}</button>
