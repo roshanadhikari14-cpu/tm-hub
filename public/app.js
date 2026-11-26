@@ -1062,11 +1062,32 @@ async function tracker() {
   const newTask = (parsed) => {
     const p = parsed && parsed.action !== undefined ? parsed : null;
     const byId_ = new Map(j.students.map((s) => [s.id, s]));
-    // one group per name found in the text; picked = student id, 0 = "none of these", null = not decided
-    const groups = p ? p.students.map((g) => ({ mention: g.mention, matches: g.matches, picked: g.selected })) : [];
+    // one group per name found in the text; choice = what was clicked: a student id, 0 = "none of these", null = nothing yet
+    const groups = p ? p.students.map((g) => ({ mention: g.mention, matches: g.matches, choice: null })) : [];
     const extra = [];
+    const plain = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const chosenTms = () => $$('input[name=tkTo]:checked').map((x) => x.value).filter((n) => j.students.some((s) => s.tm === n));
+    const inScope = (s) => {
+      const tms = chosenTms();
+      return !tms.length || tms.includes(s.tm);
+    };
+    // every student the name could mean, then only those of the TMs ticked
+    const candidates = (g) => {
+      const n = plain(g.mention);
+      const w = n.split(' ');
+      let list = j.students.filter((s) => plain(s.name) === n);
+      if (!list.length) list = j.students.filter((s) => { const parts = plain(s.name).split(' '); return parts[0] === w[0] && (w.length < 2 || parts.slice(1).some((x) => x.startsWith(w[1]))); });
+      return list.length ? list : g.matches;
+    };
+    const visible = (g) => candidates(g).filter(inScope).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 30);
+    // id, 0 (none) or null (still to choose)
+    const effective = (g) => {
+      const list = visible(g);
+      if (g.choice === 0 || list.some((s) => s.id === g.choice)) return g.choice;
+      return list.length === 1 ? list[0].id : list.length ? null : 0;
+    };
     const picked = () => {
-      const ids = [...groups.map((g) => g.picked), ...extra].filter(Boolean);
+      const ids = [...groups.map(effective), ...extra].filter(Boolean);
       return [...new Set(ids)].map((id) => byId_.get(id) || groups.flatMap((g) => g.matches).find((m) => m.id === id)).filter(Boolean);
     };
     const wanted = p ? p.assignees : tkState.who ? [tkState.who] : [];
@@ -1086,7 +1107,7 @@ async function tracker() {
        <p class="note">A mail goes to the person the task is assigned to.</p>`,
       p ? 'Go – create task' : 'Assign and send mail',
       () => {
-        const open = groups.filter((g) => g.picked === null);
+        const open = groups.filter((g) => effective(g) === null);
         if (!$('#tkType').value && open.length) {
           toast('Choose the student for “' + open[0].mention + '” first.', 'err');
           return;
@@ -1112,7 +1133,8 @@ async function tracker() {
       const fixed = p ? p.warnings.filter((w) => !/matches \d+ students|'s student\.$/.test(w) && !/Choose who the task/.test(w)) : [];
       const names = $$('input[name=tkTo]:checked').map((x) => x.value);
       const live = [
-        ...groups.filter((g) => g.picked === null).map((g) => `“${g.mention}” matches ${g.matches.length} students: pick the right one.`),
+        ...groups.filter((g) => effective(g) === null).map((g) => `“${g.mention}” matches ${visible(g).length} students: pick the right one.`),
+        ...groups.filter((g) => !visible(g).length).map((g) => `No “${g.mention}” among ${chosenTms().map((n) => n.split(' ')[0]).join(' / ')}'s students.`),
         ...(p && !names.length ? ['Choose who the task is for.'] : []),
         ...(names.length ? picked().filter((s) => s.tm && !names.includes(s.tm)).map((s) => `${s.name} is ${s.tm.split(' ')[0]}'s student.`) : []),
       ];
@@ -1122,12 +1144,16 @@ async function tracker() {
     };
     const paintStudents = () => {
       const choose = groups
-        .map((g, i) =>
-          g.matches.length > 1 || g.picked === 0
-            ? `<fieldset class="tk-match ${g.picked === null ? 'need' : ''}"><legend>“${esc(g.mention)}” · ${g.matches.length} student${g.matches.length > 1 ? 's' : ''} match, pick one</legend>${g.matches.map((m) => `<label><input type="radio" name="tkM${i}" value="${m.id}" ${g.picked === m.id ? 'checked' : ''}><span>${opt(m)}${m.own ? '<b>their student</b>' : ''}</span></label>`).join('')}<label><input type="radio" name="tkM${i}" value="0" ${g.picked === 0 ? 'checked' : ''}><span>None of these</span></label></fieldset>`
-            : ''
-        )
+        .map((g, i) => {
+          const list = visible(g);
+          const now = effective(g);
+          if (!(list.length > 1 || (g.choice === 0 && list.length))) return '';
+          const whose = chosenTms().length ? ` in ${chosenTms().map((n) => n.split(' ')[0]).join(' / ')}'s list` : '';
+          return `<fieldset class="tk-match ${now === null ? 'need' : ''}"><legend>“${esc(g.mention)}” · ${list.length} student${list.length > 1 ? 's' : ''}${esc(whose)}, pick one</legend>${list.map((m) => `<label><input type="radio" name="tkM${i}" value="${m.id}" ${now === m.id ? 'checked' : ''}><span>${opt(m)}</span></label>`).join('')}<label><input type="radio" name="tkM${i}" value="0" ${now === 0 ? 'checked' : ''}><span>None of these</span></label></fieldset>`;
+        })
         .join('');
+      // the search box offers the same students only
+      $('#tkStuList').innerHTML = j.students.filter(inScope).map((s) => `<option value="${esc(s.name + ' · ' + s.id)}">${esc([s.grade ? 'Class ' + s.grade : '', s.school].filter(Boolean).join(' · '))}</option>`).join('');
       const sel = picked();
       $('#tkStuBox').innerHTML = choose + (sel.length ? `<div class="tk-stus">${sel.map((s) => `<span class="tk-stu sel">🎓 ${esc(s.name)}<small>${esc([s.grade ? 'Class ' + s.grade : '', s.tm ? 'TM ' + s.tm.split(' ')[0] : ''].filter(Boolean).join(' · '))}</small><button type="button" data-drop="${s.id}" aria-label="Remove ${esc(s.name)}">×</button></span>`).join('')}</div>` : choose ? '' : '<p class="tk-small">No student attached.</p>');
       paintWarnings();
@@ -1136,7 +1162,7 @@ async function tracker() {
     $('#tkStuBox').onchange = (e) => {
       const m = /^tkM(\d+)$/.exec(e.target.name || '');
       if (!m) return;
-      groups[Number(m[1])].picked = Number(e.target.value);
+      groups[Number(m[1])].choice = Number(e.target.value);
       paintStudents();
       refreshText();
     };
@@ -1144,7 +1170,7 @@ async function tracker() {
       const b = e.target.closest('[data-drop]');
       if (!b) return;
       const id = Number(b.dataset.drop);
-      groups.forEach((g) => g.picked === id && (g.picked = 0));
+      groups.forEach((g) => effective(g) === id && (g.choice = 0));
       const at = extra.indexOf(id);
       if (at >= 0) extra.splice(at, 1);
       paintStudents();
@@ -1153,7 +1179,7 @@ async function tracker() {
     $('#tkStuAdd').onchange = (e) => {
       const m = e.target.value.match(/(\d+)\s*$/);
       const s = m && byId_.get(Number(m[1]));
-      if (!s) return toast('Pick the student from the list.', 'err');
+      if (!s || !inScope(s)) return toast(s ? 'That student belongs to another TM.' : 'Pick the student from the list.', 'err');
       if (!picked().some((x) => x.id === s.id)) extra.push(s.id);
       e.target.value = '';
       paintStudents();
@@ -1162,9 +1188,13 @@ async function tracker() {
     $('#tkTitle').oninput = () => (edited.title = true);
     $('#tkDetails').oninput = () => (edited.details = true);
     wireAll();
-    $$('input[name=tkTo]').forEach((x) => x.addEventListener('change', paintWarnings));
-    $('#tkAll').addEventListener('click', paintWarnings);
-    paintWarnings();
+    const people = () => {
+      paintStudents();
+      refreshText();
+    };
+    $$('input[name=tkTo]').forEach((x) => x.addEventListener('change', people));
+    $('#tkAll').addEventListener('click', people);
+    refreshText();
     // a predefined type needs no title or students; show how much is pending for each person picked
     const pending = () => {
       const key = $('#tkType').value;
