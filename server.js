@@ -20,6 +20,7 @@ const TutorLeaves = require('./lib/tutorLeaves');
 const DiskCache = require('./lib/diskCache');
 const ManualPtm = require('./lib/manualPtm');
 const TeamTasks = require('./lib/teamTasks');
+const TaskRem = require('./lib/taskReminders');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
@@ -658,7 +659,8 @@ async function sendTaskMail(t, url) {
 app.get('/api/tracker', (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);
-  res.json({ today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
+  const rem = TaskRem.load();
+  res.json({ reminders: { enabled: rem.enabled, lastRun: rem.lastRun || null }, today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
 });
 app.post('/api/tracker', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
@@ -1618,6 +1620,50 @@ app.post('/api/ptm-reminders/test', async (req, res) => {
 
 // ---------- Scheduled jobs (Vercel Cron) ----------
 // vercel.json calls these Monday to Saturday at 11:00, 17:00 and 20:00 IST.
+// Hourly pending-task mails (10 AM to 8 PM, Monday to Saturday). Called by hourly Vercel crons and by the laptop ping; the hub decides who is due.
+async function runTaskReminders() {
+  const st = TaskRem.load();
+  if (!st.enabled) return { skipped: 'Hourly task mails are switched off.' };
+  if (!TaskRem.inWindow(istNow())) return { skipped: 'Outside 10 AM to 8 PM, Monday to Saturday.' };
+  const list = TaskRem.due(TeamTasks.load(), st.last, Date.now());
+  if (!list.length) return { sent: 0 };
+  // note the time first, so a second trigger arriving meanwhile does not mail the same person again
+  for (const e of list) st.last[e.name] = Date.now();
+  TaskRem.save(st);
+  const errors = [];
+  let sent = 0;
+  for (const e of list) {
+    const m = TaskRem.buildMail(e, istDate(), sender(), APP_URL());
+    try {
+      await mailTo(e.email, m.subject, m.html);
+      sent++;
+    } catch (err) {
+      delete st.last[e.name]; // try again at the next trigger
+      errors.push(e.name + ': ' + mailErr(err));
+    }
+  }
+  st.lastRun = { at: new Date().toISOString(), sent, errors };
+  TaskRem.save(st);
+  return { sent, errors };
+}
+app.get('/api/cron/task-reminders', async (req, res) => {
+  try {
+    const out = await runTaskReminders();
+    // the PTM remark reminders use the same triggers (they stay silent while switched off)
+    await runPtmReminders().catch(() => {});
+    res.json({ ok: true, sent: out.sent || 0, note: out.skipped || '' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post('/api/tracker/reminders', (req, res) => {
+  if (req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can change this.' });
+  const st = TaskRem.load();
+  st.enabled = Boolean(req.body && req.body.enabled);
+  TaskRem.save(st);
+  res.json({ enabled: st.enabled });
+});
+
 app.get('/api/cron/:slot', async (req, res) => {
   const slot = req.params.slot;
   // With CRON_SECRET set, only Vercel's own scheduler gets in. Without it the

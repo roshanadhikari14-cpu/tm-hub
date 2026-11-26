@@ -969,6 +969,7 @@ async function tracker() {
           <button class="tk-person ${tkState.who ? '' : 'on'}" data-who=""><span class="tk-av tk-ini">All</span><small>Everyone</small></button>
           ${people.map((p) => `<button class="tk-person ${tkState.who === p.name ? 'on' : ''}" data-who="${esc(p.name)}" title="${esc(p.name)}: ${p.open} open${p.late ? ', ' + p.late + ' past due' : ''}">${tkAvatar(p, p.name)}${p.open ? `<em class="${p.late ? 'late' : ''}">${p.open}</em>` : ''}<small>${esc(p.name.split(' ')[0])}</small></button>`).join('')}
         </div>
+        ${j.role === 'owner' ? `<label class="fchip" style="cursor:pointer" title="Mails everyone with a pending task every hour, 10 AM to 8 PM, Monday to Saturday"><input type="checkbox" id="tkHourly" ${j.reminders && j.reminders.enabled ? 'checked' : ''}> Hourly reminder mails</label>` : ''}
         <button type="button" class="btn btn-primary tk-new" id="tkNew">＋ Assign task</button>
       </div>
       <div class="tk-board">${TK_LANES.map(([key, name, tone]) => {
@@ -1024,6 +1025,16 @@ async function tracker() {
 
   function wire() {
     $('#tkNew').onclick = newTask;
+    if ($('#tkHourly'))
+      $('#tkHourly').onchange = async (e) => {
+        try {
+          const r = await api('/api/tracker/reminders', { body: { enabled: e.target.checked } });
+          j.reminders.enabled = r.enabled;
+          toast(r.enabled ? 'Hourly reminder mails are on' : 'Hourly reminder mails are off', 'ok');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
     $$('.tk-person').forEach((b) => (b.onclick = () => {
       tkState.who = b.dataset.who;
       tkState.seen.clear(); // cards fly in again for the person picked
