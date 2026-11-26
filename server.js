@@ -650,7 +650,7 @@ app.post('/api/ptm-report/publish', async (req, res) => {
       const id = `${sid}-${Date.now()}`;
       fs.writeFileSync(path.join(REPORTS, id + '.pdf'), Buffer.from(out.pdf, 'base64'));
       const list = [{ id, name: out.name, month: b.month, window: (b.ctx && b.ctx.window) || '30', at: new Date().toISOString(), by: req.user || 'this PC', bytes: out.bytes }, ...(idx[sid] || [])];
-      for (const old of list.slice(5)) fs.rmSync(path.join(REPORTS, old.id + '.pdf'), { force: true });
+      for (const old of list.slice(5)) await persist.forget('reports/' + old.id + '.pdf').catch(() => {});
       idx[sid] = list.slice(0, 5);
       writeJson(path.join(REPORTS, 'index.json'), idx);
       out.saved = { id, url: '/api/reports/file/' + id };
@@ -661,12 +661,17 @@ app.post('/api/ptm-report/publish', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-app.get('/api/reports/file/:id', (req, res) => {
+app.get('/api/reports/file/:id', async (req, res) => {
   const id = String(req.params.id).replace(/[^0-9-]/g, '');
   const sid = id.split('-')[0];
   const rec = (repIndex()[sid] || []).find((r) => r.id === id);
   if (!rec || !studentAllowed(req, sid)) return res.status(404).json({ error: 'Report not found.' });
   const f = path.join(REPORTS, id + '.pdf');
+  try {
+    await persist.ensure('reports/' + id + '.pdf'); // report PDFs are downloaded only when opened
+  } catch (e) {
+    return res.status(503).json({ error: e.message });
+  }
   if (!fs.existsSync(f)) return res.status(404).json({ error: 'Report not found.' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${rec.name.replace(/[^\w .-]/g, '')}"`);

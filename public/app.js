@@ -1811,8 +1811,7 @@ async function settings() {
 // ---------- start ----------
 view.innerHTML = '<div class="grid g-kpi">' + '<div class="skeleton" style="height:150px"></div>'.repeat(9) + '</div>';
 route();
-setTimeout(swrWarm, 2500);
-setInterval(swrWarm, 5 * 60 * 1000);
+setTimeout(swrWarm, 2500); // once per visit; no repeating timer, to keep server and database traffic low
 setInterval(async () => {
   // Quietly keep the sidebar status current.
   try {
