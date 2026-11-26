@@ -100,7 +100,7 @@ document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{cur=+b.datas
   // keep the last KEEP_DAYS days
   const days = fs.readdirSync(ROOT).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
   for (const old of days.slice(0, Math.max(0, days.length - KEEP_DAYS))) fs.rmSync(path.join(ROOT, old), { recursive: true, force: true });
-  log(`saved ${d.date}: ${list.map(([id, , , rows]) => `${rows.length} ${id}`).join(', ')}${d.errors.length ? ' | problems: ' + d.errors.join('; ') : ''}`);
+  log(`saved ${d.date}: ${list.map(([id, , , rows]) => `${rows.length} ${id}`).join(', ')}${d.errors.length ? ' | problems: ' + d.errors.join('; ') : ''}${d.recovery ? ' | old PTM remarks: ' + d.recovery.state + (d.recovery.added != null ? ' (' + d.recovery.added + ' brought back)' : '') : ''}`);
 })().catch((e) => {
   log('FAILED: ' + e.message);
   process.exit(1);

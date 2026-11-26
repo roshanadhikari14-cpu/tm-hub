@@ -17,6 +17,7 @@ const persist = require('./lib/persist');
 const Remarks = require('./lib/ptmRemarks');
 const PRem = require('./lib/ptmReminders');
 const TutorLeaves = require('./lib/tutorLeaves');
+const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
 const Parents = require('./lib/parents');
 const Access = require('./lib/access');
@@ -836,6 +837,7 @@ app.post('/api/cron/backup', express.text({ type: '*/*', limit: '10kb' }), async
     safe('leaves', () => TutorLeaves.load(true), { leaves: [] }),
     safe('ptms', () => ptmMeetings(addDays(today, -30), addDays(today, 14)), []),
   ]);
+  const recovery = await safe('old remarks', () => restoreRemarks(), { state: 'not checked' });
   const remarks = Remarks.load();
   const board_ = await safe('tasks', async () => board('progress'), null);
   res.json({
@@ -843,6 +845,7 @@ app.post('/api/cron/backup', express.text({ type: '*/*', limit: '10kb' }), async
     date: today,
     dataAt: A ? A.fetchedAt : null,
     errors,
+    recovery,
     students,
     parents,
     renewals: loadRenewals(),
