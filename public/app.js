@@ -864,23 +864,50 @@ async function tutors() {
   };
 }
 // ---------- Task tracker ----------
-const tkState = { f: 'open', who: '' };
+// A board of four lanes (upcoming, due today, past due, completed) with the assignee's photo on every card,
+// remarks on each task, drag to complete, and a little celebration when something is finished.
+const tkState = { who: '', open: new Set(), seen: new Set() };
 const tkDay = (d) => new Date(d.length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: d.length === 10 ? 'UTC' : 'Asia/Kolkata' });
 const tkDays = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
-// open tasks: how late or how close; finished ones: whether they were late
-function tkStatus(t, today) {
-  if (t.status === 'done') {
-    const late = tkDays(t.due, new Date(t.doneAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
-    return { key: 'done', late: false, html: '<span class="ptag ok">Completed</span>' + (late > 0 ? '<br><small style="color:var(--red)">' + late + ' day' + (late === 1 ? '' : 's') + ' past due</small>' : '') };
+const TK_LANES = [
+  ['next', 'Upcoming', 'blue'],
+  ['today', 'Due today', 'amber'],
+  ['late', 'Past due date', 'red'],
+  ['done', 'Completed', 'green'],
+];
+const tkLane = (t, today) => (t.status === 'done' ? 'done' : t.due < today ? 'late' : t.due === today ? 'today' : 'next');
+const tkAvatar = (p, name, cls) =>
+  p && p.photo
+    ? `<img class="tk-av ${cls || ''}" src="/photos/${esc(p.photo)}" alt="" loading="lazy">`
+    : `<span class="tk-av tk-ini ${cls || ''}">${esc(String(name).split(' ').map((w) => w[0]).slice(0, 2).join(''))}</span>`;
+const tkCalm = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function tkConfetti(x, y) {
+  if (tkCalm()) return;
+  const colours = ['#2b2f8f', '#16a34a', '#f59e0b', '#e8092f', '#0ea5e9'];
+  for (let i = 0; i < 46; i++) {
+    const s = document.createElement('i');
+    s.className = 'tk-bit';
+    const angle = Math.random() * Math.PI * 2;
+    const reach = 60 + Math.random() * 130;
+    s.style.cssText = `left:${x}px;top:${y}px;background:${colours[i % colours.length]};--dx:${Math.cos(angle) * reach}px;--dy:${Math.sin(angle) * reach - 40}px;--r:${Math.random() * 540}deg;animation-delay:${Math.random() * 80}ms`;
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1300);
   }
-  const past = tkDays(t.due, today);
-  if (past > 0) return { key: 'late', late: true, html: '<span class="ptag red">' + past + ' day' + (past === 1 ? '' : 's') + ' past</span>' };
-  if (past === 0) return { key: 'today', late: false, html: '<span class="ptag amber">Due today</span>' };
-  return { key: 'next', late: false, html: '<span class="ptag blue">' + (past === -1 ? 'Due tomorrow' : 'Due in ' + -past + ' days') + '</span>' };
+}
+function tkCount(el) {
+  const end = Number(el.dataset.n);
+  if (tkCalm() || !end) return (el.textContent = end);
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 600);
+    el.textContent = Math.round(end * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 async function tracker() {
-  title('Task tracker', 'Tasks assigned in the team, with due dates and remarks');
-  if (!$('#tkBody')) view.innerHTML = loader({ text: 'Loading tasks' });
+  title('Task tracker', 'Assign work, follow it lane by lane, and note what was done');
+  if (!$('.tk-board')) view.innerHTML = loader({ text: 'Loading tasks' });
   let j;
   try {
     j = await api('/api/tracker');
@@ -888,38 +915,79 @@ async function tracker() {
     view.innerHTML = '<div class="card"><h3>Could not load tasks</h3><p class="note">' + esc(err.message) + '</p></div>';
     return;
   }
-  const all = j.tasks.map((t) => ({ ...t, s: tkStatus(t, j.today) }));
+  const person = (n) => j.people.find((p) => p.name === n);
+  const all = j.tasks.map((t) => ({ ...t, lane: tkLane(t, j.today), remarks: t.remarks || [], priority: t.priority || 'Medium' }));
+  const byId = (id) => all.find((t) => t.id === id);
   const mine = (t) => j.role === 'owner' || t.createdByEmail === j.myEmail;
-  const FILTERS = [['open', 'blue', 'open', (t) => t.status === 'open'], ['today', 'amber', 'due today', (t) => t.s.key === 'today'], ['late', 'red', 'past due', (t) => t.s.key === 'late'], ['done', 'ok', 'completed', (t) => t.status === 'done'], ['all', '', 'all tasks', () => true]];
-  view.innerHTML = `<div class="toolbar team-tools" style="flex-wrap:wrap">
-      <select class="sel" id="tkWho"><option value="">Everyone</option>${j.people.map((p) => '<option ' + (tkState.who === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select>
-      <span style="flex:1"></span><button type="button" class="btn btn-primary" id="tkNew">＋ Assign task</button></div>
-    <div class="rn-chips" id="tkSum"></div>
-    <div class="card" style="padding:0"><div class="table-wrap" style="max-height:74vh;overflow:auto"><table class="tbl"><thead><tr><th>Task</th><th>Assigned to</th><th>Assigned on</th><th>Due date</th><th>Status</th><th>Remarks</th><th></th></tr></thead><tbody id="tkBody"></tbody></table></div></div>`;
-  const paint = () => {
-    const base = all.filter((t) => !tkState.who || t.assignee === tkState.who);
-    $('#tkSum').innerHTML = FILTERS.map(([k, cls, label, f]) => '<button type="button" class="ptag ' + cls + ' rn-chip ' + (tkState.f === k ? 'on' : '') + '" data-f="' + k + '">' + base.filter(f).length + ' ' + label + '</button>').join('');
-    $$('#tkSum .rn-chip').forEach((c) => (c.onclick = () => ((tkState.f = c.dataset.f), paint())));
-    const f = FILTERS.find((x) => x[0] === tkState.f)[3];
-    const list = base.filter(f).sort((x, y) => (x.status === y.status ? (x.status === 'done' ? String(y.doneAt).localeCompare(String(x.doneAt)) : x.due.localeCompare(y.due)) : x.status === 'open' ? -1 : 1));
-    $('#tkBody').innerHTML = list.map((t) => `<tr>
-        <td style="min-width:260px"><b>${esc(t.title)}</b>${t.details ? '<br><small style="color:var(--ink-2);white-space:pre-wrap">' + esc(t.details) + '</small>' : ''}</td>
-        <td style="white-space:nowrap"><b>${esc(t.assignee)}</b><br><small style="color:var(--ink-3)">by ${esc(t.createdBy)}</small></td>
-        <td style="white-space:nowrap">${tkDay(t.assignedAt)}${t.mail === 'sent' ? '<br><small style="color:var(--ink-3)">✉ mailed</small>' : t.mail ? '<br><small style="color:var(--red)" title="' + esc(t.mail) + '">✉ not sent</small>' : ''}</td>
-        <td style="white-space:nowrap">${tkDay(t.due)}</td>
-        <td style="white-space:nowrap">${t.s.html}</td>
-        <td style="min-width:200px">${t.comment ? '<span style="white-space:pre-wrap">' + esc(t.comment) + '</span>' + (t.status === 'done' ? '<br><small style="color:var(--ink-3)">' + esc(t.doneBy) + ' · ' + tkDay(t.doneAt) + '</small>' : '<br><small style="color:var(--ink-3)">earlier remark</small>') : '<small style="color:var(--ink-3)">—</small>'}</td>
-        <td style="white-space:nowrap">${t.status === 'open' && (mine(t) || t.assignee === j.me) ? '<button type="button" class="btn btn-primary" data-tk="done" data-id="' + t.id + '" style="padding:5px 10px;font-size:12.5px">✓ Mark complete</button>' : ''}${mine(t) ? '<div style="margin-top:5px;font-size:12px">' + (t.status === 'done' ? '<a href="#" data-tk="reopen" data-id="' + t.id + '">Reopen</a> · ' : t.assignee !== j.me ? '<a href="#" data-tk="remind" data-id="' + t.id + '">Mail again</a> · ' : '') + '<a href="#" data-tk="delete" data-id="' + t.id + '" style="color:var(--red)">Delete</a></div>' : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No tasks here.</td></tr>';
+  const canFinish = (t) => mine(t) || t.assignee === j.me;
+
+  const dueLine = (t) => {
+    if (t.lane === 'done') {
+      const late = tkDays(t.due, new Date(t.doneAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+      return `<span class="tk-due">Done ${tkDay(t.doneAt)}${late > 0 ? ` · <b class="tk-red">${late} day${late === 1 ? '' : 's'} past</b>` : ''}</span>`;
+    }
+    const past = tkDays(t.due, j.today);
+    return `<span class="tk-due">Due ${tkDay(t.due)}${past > 0 ? ` · <b class="tk-red">${past} day${past === 1 ? '' : 's'} past</b>` : ''}</span>`;
   };
-  paint();
-  $('#tkWho').onchange = (e) => ((tkState.who = e.target.value), paint());
-  const send = async (body, done) => {
+  const card = (t, i) => {
+    const open = tkState.open.has(t.id);
+    const fresh = !tkState.seen.has(t.id);
+    return `<article class="tk-card ${t.lane} ${fresh ? 'tk-in' : ''}" style="--i:${i}" data-id="${t.id}" draggable="${canFinish(t) ? 'true' : 'false'}">
+      <div class="tk-top"><span class="tk-pill p-${t.priority.toLowerCase()}">${esc(t.priority)}</span><span class="tk-date">Assigned ${tkDay(t.assignedAt)}</span>
+        ${mine(t) && t.assignee !== j.me && t.lane !== 'done' ? `<button class="tk-ico" data-tk="remind" title="${t.mail === 'sent' ? 'Mailed. Send the mail again' : 'Send the task mail'}">@</button>` : ''}</div>
+      <h4>${esc(t.title)}</h4>
+      ${t.details ? `<p class="tk-details">${esc(t.details)}</p>` : ''}
+      <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>by ${esc(t.createdBy)}</small></div></div>
+      <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
+      ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
+      ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
+      <div class="tk-actions">
+        <button class="tk-btn ${open ? 'on' : ''}" data-tk="notes">💬 Remarks${t.remarks.length ? ` <em>${t.remarks.length}</em>` : ''}</button>
+        ${t.lane !== 'done' && canFinish(t) ? '<button class="tk-btn go" data-tk="done">✓ Complete</button>' : ''}
+        ${t.lane === 'done' && mine(t) ? '<button class="tk-btn" data-tk="reopen">↺ Reopen</button>' : ''}
+        ${mine(t) ? '<button class="tk-btn bin" data-tk="delete" title="Delete">🗑</button>' : ''}
+      </div>
+      <div class="tk-thread ${open ? 'on' : ''}"><div>
+        ${t.remarks.map((r) => `<div class="tk-note">${tkAvatar(person(r.by), r.by, 'sm')}<p><b>${esc(r.by.split(' ')[0])}</b> ${esc(r.text)}<small>${new Date(r.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></p></div>`).join('') || '<p class="tk-small">No remarks yet.</p>'}
+        <form class="tk-add"><input maxlength="1000" placeholder="Write a remark…" aria-label="Remark"><button type="submit" class="tk-btn go">Add</button></form>
+      </div></div>
+    </article>`;
+  };
+
+  const paint = () => {
+    const list = all.filter((t) => !tkState.who || t.assignee === tkState.who);
+    const done = list.filter((t) => t.lane === 'done').length;
+    const pct = list.length ? Math.round((100 * done) / list.length) : 0;
+    // a TM's photo row holds only themselves and people they have given a task to; nobody else's workload is shown
+    const shown = j.role === 'owner' ? j.people : j.people.filter((p) => p.name === j.me || all.some((t) => t.assignee === p.name));
+    const people = shown.map((p) => ({ ...p, open: all.filter((t) => t.assignee === p.name && t.lane !== 'done').length, late: all.filter((t) => t.assignee === p.name && t.lane === 'late').length }));
+    view.innerHTML = `
+      <div class="tk-head">
+        <div class="tk-gauge" title="${done} of ${list.length} completed"><svg viewBox="0 0 100 100"><circle class="g-t" cx="50" cy="50" r="42"/><circle class="g-b" cx="50" cy="50" r="42" stroke-dasharray="263.9" stroke-dashoffset="${263.9 * (1 - pct / 100)}"/></svg><b>${pct}<i>%</i></b></div>
+        <div class="tk-people">
+          <button class="tk-person ${tkState.who ? '' : 'on'}" data-who=""><span class="tk-av tk-ini">All</span><small>Everyone</small></button>
+          ${people.map((p) => `<button class="tk-person ${tkState.who === p.name ? 'on' : ''}" data-who="${esc(p.name)}" title="${esc(p.name)}: ${p.open} open${p.late ? ', ' + p.late + ' past due' : ''}">${tkAvatar(p, p.name)}${p.open ? `<em class="${p.late ? 'late' : ''}">${p.open}</em>` : ''}<small>${esc(p.name.split(' ')[0])}</small></button>`).join('')}
+        </div>
+        <button type="button" class="btn btn-primary tk-new" id="tkNew">＋ Assign task</button>
+      </div>
+      <div class="tk-board">${TK_LANES.map(([key, name, tone]) => {
+        const items = list.filter((t) => t.lane === key).sort((x, y) => (key === 'done' ? String(y.doneAt).localeCompare(String(x.doneAt)) : x.due.localeCompare(y.due)));
+        return `<section class="tk-lane ${tone}" data-lane="${key}"><header><h3>${name}</h3><span data-n="${items.length}">0</span></header><div class="tk-cards">${items.map(card).join('') || '<p class="tk-empty">No tasks</p>'}</div></section>`;
+      }).join('')}</div>
+      <p class="tk-small" style="margin-top:8px">Tip: drag a card onto Completed to finish it.</p>`;
+    $$('.tk-lane header span').forEach(tkCount);
+    all.forEach((t) => tkState.seen.add(t.id));
+    wire();
+  };
+
+  const send = async (body, done, after) => {
     try {
       const r = await api('/api/tracker', { body });
       $('#modal').hidden = true;
       if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
-      else toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
-      tracker();
+      else if (done) toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
+      if (after) after();
+      await tracker();
     } catch (err) {
       toast(err.message, 'err');
     }
@@ -929,26 +997,101 @@ async function tracker() {
     $('#modal').hidden = false;
     $('#tkNo').onclick = () => ($('#modal').hidden = true);
     $('#tkOk').onclick = (e) => {
-      e.target.disabled = true;
-      Promise.resolve(onOk()).finally(() => (e.target.disabled = false));
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      Promise.resolve(onOk()).finally(() => (btn.disabled = false));
     };
   };
-  $('#tkNew').onclick = () =>
-    modal('＋ Assign a task', '<label>Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label><label>Assign to<select id="tkTo">' + j.people.map((p) => '<option>' + esc(p) + '</option>').join('') + '</select></label><label>Due date<input id="tkDue" type="date" min="' + j.today + '" value="' + j.today + '"></label><p class="note">A mail goes to the person the task is assigned to.</p>', 'Assign and send mail', () =>
-      send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignee: $('#tkTo').value, due: $('#tkDue').value }, 'Task assigned.')
+  const priorityField = (now) => `<label>Priority<select id="tkPri">${['High', 'Medium', 'Low'].map((p) => `<option ${p === now ? 'selected' : ''}>${p}</option>`).join('')}</select></label>`;
+  const finish = (t) => {
+    const el = $(`.tk-card[data-id="${t.id}"]`);
+    const box = el ? el.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
+    modal('✓ Complete: ' + esc(t.title), '<label>Remarks (what was done)<textarea id="tkComment" rows="4" maxlength="2000"></textarea></label>', 'Mark complete', () =>
+      send({ action: 'done', id: t.id, comment: $('#tkComment').value }, 'Marked complete.', () => tkConfetti(box.left + box.width / 2, box.top + box.height / 2))
     );
-  $('#tkBody').onclick = (e) => {
-    const b = e.target.closest('[data-tk]');
-    if (!b) return;
-    e.preventDefault();
-    const t = all.find((x) => x.id === b.dataset.id);
-    if (!t) return;
-    if (b.dataset.tk === 'done')
-      return modal('✓ Complete: ' + esc(t.title), '<label>Remarks (what was done)<textarea id="tkComment" rows="4" maxlength="2000"></textarea></label>', 'Mark complete', () => send({ action: 'done', id: t.id, comment: $('#tkComment').value }, 'Marked complete.'));
-    if (b.dataset.tk === 'reopen') return send({ action: 'reopen', id: t.id }, 'Reopened.');
-    if (b.dataset.tk === 'remind') return window.confirm('Send the task mail to ' + t.assignee + ' again?') && send({ action: 'remind', id: t.id }, 'Reminder done.');
-    if (window.confirm('Delete this task?')) send({ action: 'delete', id: t.id }, 'Deleted.');
   };
+  const newTask = () => {
+    modal(
+      '＋ Assign a task',
+      `<label>Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label>
+       <div class="tk-lbl">Assign to</div><div class="tk-pick">${j.people.map((p, i) => `<label title="${esc(p.name)}"><input type="radio" name="tkTo" value="${esc(p.name)}" ${(tkState.who ? p.name === tkState.who : i === 0) ? 'checked' : ''}>${tkAvatar(p, p.name, 'lg')}<small>${esc(p.name.split(' ')[0])}</small></label>`).join('')}</div>
+       <label>Due date<input id="tkDue" type="date" min="${j.today}" value="${j.today}"></label>${priorityField('Medium')}<p class="note">A mail goes to the person the task is assigned to.</p>`,
+      'Assign and send mail',
+      () => send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignee: ($('input[name=tkTo]:checked') || {}).value, due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
+    );
+  };
+
+  function wire() {
+    $('#tkNew').onclick = newTask;
+    $$('.tk-person').forEach((b) => (b.onclick = () => {
+      tkState.who = b.dataset.who;
+      tkState.seen.clear(); // cards fly in again for the person picked
+      paint();
+    }));
+    const board = $('.tk-board');
+    board.onclick = (e) => {
+      const btn = e.target.closest('[data-tk]');
+      if (!btn) return;
+      const el = btn.closest('.tk-card');
+      const t = byId(el.dataset.id);
+      const what = btn.dataset.tk;
+      if (what === 'notes') {
+        const on = !tkState.open.has(t.id);
+        tkState.open[on ? 'add' : 'delete'](t.id);
+        btn.classList.toggle('on', on);
+        el.querySelector('.tk-thread').classList.toggle('on', on);
+        if (on) setTimeout(() => el.querySelector('.tk-add input').focus(), 220);
+      } else if (what === 'done') finish(t);
+      else if (what === 'reopen') send({ action: 'reopen', id: t.id }, 'Reopened.');
+      else if (what === 'remind') window.confirm('Send the task mail to ' + t.assignee + '?') && send({ action: 'remind', id: t.id }, 'Done.');
+      else if (what === 'delete') window.confirm('Delete this task?') && send({ action: 'delete', id: t.id }, 'Deleted.');
+      else if (what === 'edit')
+        modal(
+          '✎ Edit task',
+          `<label>Task<input id="tkTitle" maxlength="200" value="${esc(t.title)}"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000">${esc(t.details)}</textarea></label><label>Due date<input id="tkDue" type="date" value="${t.due}"></label>${priorityField(t.priority)}`,
+          'Save',
+          () => send({ action: 'edit', id: t.id, title: $('#tkTitle').value, details: $('#tkDetails').value, due: $('#tkDue').value, priority: $('#tkPri').value }, 'Saved.')
+        );
+    };
+    board.onsubmit = (e) => {
+      e.preventDefault();
+      const el = e.target.closest('.tk-card');
+      const input = e.target.querySelector('input');
+      if (input.value.trim().length < 2) return toast('Write the remark first.', 'err');
+      input.blur();
+      send({ action: 'remark', id: el.dataset.id, text: input.value }, 'Remark added.');
+    };
+    board.ondragstart = (e) => {
+      const el = e.target.closest('.tk-card');
+      if (!el) return;
+      e.dataTransfer.setData('text/plain', el.dataset.id);
+      el.classList.add('tk-drag');
+      board.classList.add('dragging');
+    };
+    board.ondragend = () => {
+      board.classList.remove('dragging');
+      $$('.tk-drag, .tk-over').forEach((x) => x.classList.remove('tk-drag', 'tk-over'));
+    };
+    board.ondragover = (e) => {
+      const lane = e.target.closest('.tk-lane');
+      if (!lane) return;
+      e.preventDefault();
+      $$('.tk-lane').forEach((x) => x.classList.toggle('tk-over', x === lane));
+    };
+    board.ondrop = (e) => {
+      e.preventDefault();
+      const lane = e.target.closest('.tk-lane');
+      const t = byId(e.dataTransfer.getData('text/plain'));
+      board.ondragend();
+      if (!lane || !t) return;
+      if (lane.dataset.lane === 'done' && t.lane !== 'done') finish(t);
+      else if (lane.dataset.lane !== 'done' && t.lane === 'done') {
+        if (mine(t)) send({ action: 'reopen', id: t.id }, 'Reopened.');
+        else toast('Only the person who assigned it can reopen it.', 'err');
+      } else if (lane.dataset.lane !== t.lane) toast('The lane follows the due date. Use ✎ to change it.', 'err');
+    };
+  }
+  paint();
 }
 const routes = { dashboard, team, tm, tasks, tracker, ptm, students, renewals, tutors, reports, schedule, settings };
 let navToken = 0;

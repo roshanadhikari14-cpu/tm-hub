@@ -632,9 +632,9 @@ app.post('/api/ptm-manual', async (req, res) => {
 
 // ---------- Task tracker: tasks assigned within the team ----------
 const trackerPeople = () => {
-  const list = team().map((m) => ({ name: m.name, email: String(m.email || '').toLowerCase() }));
+  const list = team().map((m) => ({ name: m.name, email: String(m.email || '').toLowerCase(), photo: m.photo || '' }));
   const owner = ownerEmail() || senderAddr() || '';
-  if (!list.some((p) => p.name === sender().name)) list.unshift({ name: sender().name, email: owner });
+  if (!list.some((p) => p.name === sender().name)) list.unshift({ name: sender().name, email: owner, photo: '' });
   return list;
 };
 const trackerMe = (req) => (req.role === 'owner' ? { name: sender().name, email: ownerEmail() || String(senderAddr() || '') } : { name: req.myTm, email: req.user || '' });
@@ -658,7 +658,7 @@ async function sendTaskMail(t, url) {
 app.get('/api/tracker', (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);
-  res.json({ today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => p.name), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
+  res.json({ today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
 });
 app.post('/api/tracker', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
@@ -668,7 +668,7 @@ app.post('/api/tracker', async (req, res) => {
     if (b.action === 'create') {
       const who = trackerPeople().find((p) => p.name === b.assignee);
       if (!who) return res.status(400).json({ error: 'Choose a person from the team.' });
-      const t = TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, by: me.name, byEmail: me.email }, istDate());
+      const t = TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email }, istDate());
       // no mail to yourself
       const mail = who.name === me.name ? '' : await sendTaskMail(t, baseUrl(req));
       TeamTasks.update(t.id, (x) => (x.mail = mail));
@@ -680,6 +680,12 @@ app.post('/api/tracker', async (req, res) => {
     if (b.action === 'done') {
       if (!(mine || t.assignee === me.name)) return res.status(403).json({ error: 'Only the person it is assigned to can complete it.' });
       TeamTasks.complete(t.id, b.comment, me.name);
+    } else if (b.action === 'remark') {
+      // anyone who can see the task may add a note
+      TeamTasks.remark(t.id, b.text, me.name);
+    } else if (b.action === 'edit') {
+      if (!mine) return res.status(403).json({ error: 'Only the person who assigned it can change it.' });
+      TeamTasks.edit(t.id, b);
     } else if (b.action === 'reopen' || b.action === 'delete' || b.action === 'remind') {
       if (!mine) return res.status(403).json({ error: 'Only the person who assigned it can do this.' });
       if (b.action === 'reopen') TeamTasks.reopen(t.id);
