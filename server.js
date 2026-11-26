@@ -668,13 +668,21 @@ app.post('/api/tracker', async (req, res) => {
   const me = trackerMe(req);
   try {
     if (b.action === 'create') {
-      const who = trackerPeople().find((p) => p.name === b.assignee);
-      if (!who) return res.status(400).json({ error: 'Choose a person from the team.' });
-      const t = TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email }, istDate());
-      // no mail to yourself
-      const mail = who.name === me.name ? '' : await sendTaskMail(t, baseUrl(req));
-      TeamTasks.update(t.id, (x) => (x.mail = mail));
-      return res.json({ ok: true, mail });
+      // one task per person, so each completes their own; every name is checked before anything is saved
+      const names = [...new Set(Array.isArray(b.assignees) ? b.assignees : [b.assignee])].filter(Boolean);
+      const people = names.map((n) => trackerPeople().find((p) => p.name === n));
+      if (!people.length || people.some((p) => !p)) return res.status(400).json({ error: 'Choose a person from the team.' });
+      const made = people.map((who) => [who, TeamTasks.create({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email }, istDate())]);
+      const failed = [];
+      let mailed = 0;
+      for (const [who, t] of made) {
+        // no mail to yourself
+        const mail = who.name === me.name ? '' : await sendTaskMail(t, baseUrl(req));
+        TeamTasks.update(t.id, (x) => (x.mail = mail));
+        if (mail === 'sent') mailed++;
+        else if (mail) failed.push(who.name + ': ' + mail);
+      }
+      return res.json({ ok: true, count: made.length, mailed, mail: failed.length ? failed.join(' ') : mailed ? 'sent' : '' });
     }
     const t = TeamTasks.load().find((x) => x.id === b.id);
     if (!t || !trackerSees(req, t)) return res.status(404).json({ error: 'Task not found. Reload the page.' });

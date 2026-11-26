@@ -1012,15 +1012,28 @@ async function tracker() {
       send({ action: 'done', id: t.id, comment: $('#tkComment').value }, 'Marked complete.', () => tkConfetti(box.left + box.width / 2, box.top + box.height / 2))
     );
   };
+  // one button ticks every TM (not the person assigning); a second press clears
+  const wireAll = () => {
+    const boxes = $$('input[name=tkTo]').filter((x) => x.value !== j.me);
+    const label = () => ($('#tkAll').textContent = boxes.every((x) => x.checked) ? 'Clear all' : 'Select all TMs');
+    $('#tkAll').onclick = () => {
+      const on = !boxes.every((x) => x.checked);
+      $$('input[name=tkTo]').forEach((x) => (x.checked = on && x.value !== j.me));
+      label();
+    };
+    boxes.forEach((x) => (x.onchange = label));
+    label();
+  };
   const newTask = () => {
     modal(
       '＋ Assign a task',
       `<label>Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label>
-       <div class="tk-lbl">Assign to</div><div class="tk-pick">${j.people.map((p, i) => `<label title="${esc(p.name)}"><input type="radio" name="tkTo" value="${esc(p.name)}" ${(tkState.who ? p.name === tkState.who : i === 0) ? 'checked' : ''}>${tkAvatar(p, p.name, 'lg')}<small>${esc(p.name.split(' ')[0])}</small></label>`).join('')}</div>
+       <div class="tk-lbl">Assign to <small>(pick one or more)</small> <button type="button" class="tk-btn" id="tkAll">Select all TMs</button></div><div class="tk-pick">${j.people.map((p, i) => `<label title="${esc(p.name)}"><input type="checkbox" name="tkTo" value="${esc(p.name)}" ${tkState.who && p.name === tkState.who ? 'checked' : ''}>${tkAvatar(p, p.name, 'lg')}<small>${esc(p.name.split(' ')[0])}</small></label>`).join('')}</div>
        <label>Due date<input id="tkDue" type="date" min="${j.today}" value="${j.today}"></label>${priorityField('Medium')}<p class="note">A mail goes to the person the task is assigned to.</p>`,
       'Assign and send mail',
-      () => send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignee: ($('input[name=tkTo]:checked') || {}).value, due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
+      () => send({ action: 'create', title: $('#tkTitle').value, details: $('#tkDetails').value, assignees: $$('input[name=tkTo]:checked').map((x) => x.value), due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
     );
+    wireAll();
   };
 
   function wire() {
