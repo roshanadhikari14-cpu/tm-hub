@@ -21,6 +21,7 @@ const DiskCache = require('./lib/diskCache');
 const ManualPtm = require('./lib/manualPtm');
 const TeamTasks = require('./lib/teamTasks');
 const TaskRem = require('./lib/taskReminders');
+const { parseTask } = require('./lib/taskParse');
 const AutoTasks = require('./lib/autoTasks');
 const { restoreRemarks } = require('./lib/recover');
 const LastCalls = require('./lib/lastCalls');
@@ -645,12 +646,13 @@ const trackerSees = (req, t) => req.role === 'owner' || t.assignee === req.myTm 
 const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 async function sendTaskMail(t, url) {
   if (!t.assigneeEmail) return 'No mail address is known for ' + t.assignee + '.';
-  const due = new Date(t.due + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const due = new Date(t.due + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) + (t.dueTime ? ', ' + TaskRem.clockText(t.dueTime) : '');
   const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f1b2d;max-width:600px;line-height:1.55"><p>Hi ${escHtml(t.assignee.split(' ')[0])},</p><p><b>${escHtml(t.createdBy)}</b> has assigned you a task.</p><table style="border-collapse:collapse;width:100%;border:1px solid #e3e9f1"><tr><td style="padding:8px 12px;background:#f4f8fc;width:110px">Task</td><td style="padding:8px 12px"><b>${escHtml(t.title)}</b></td></tr>${t.details ? `<tr><td style="padding:8px 12px;background:#f4f8fc">Details</td><td style="padding:8px 12px">${escHtml(t.details).replace(/\n/g, '<br>')}</td></tr>` : ''}<tr><td style="padding:8px 12px;background:#f4f8fc">Due date</td><td style="padding:8px 12px">${due}</td></tr></table><p style="margin:18px 0"><a href="${url}/#/tracker" style="background:#2b2f8f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Open the task and mark it complete</a></p><p>Please add your remarks when you mark it complete.</p><p>Regards,<br><b>${escHtml(t.createdBy)}</b></p></div>`;
   const list = t.auto
     ? `<p style="margin:14px 0 6px"><b>Pending when assigned</b></p><ul style="margin:0 0 10px;padding-left:18px">${t.auto.items.slice(0, 20).map((x) => `<li>${x.link ? `<a href="${escHtml(x.link)}">${escHtml(x.name)}</a>` : escHtml(x.name)}${x.note ? ` <span style="color:#7a8799">${escHtml(x.note)}</span>` : ''}</li>`).join('')}</ul>${t.auto.items.length > 20 ? `<p>and ${t.auto.items.length - 20} more in the hub.</p>` : ''}<p style="color:#5b6773">The task completes itself once Lighthouse shows all of these cleared.</p>`
     : '';
-  const msg = { to: t.assigneeEmail, subject: `New task: ${t.title} (due ${due})`, html: html.replace('<p style="margin:18px 0">', () => list + '<p style="margin:18px 0">') };
+  const who = (t.students || []).length ? `<p style="margin:14px 0 6px"><b>Student${t.students.length > 1 ? 's' : ''}</b></p><ul style="margin:0 0 10px;padding-left:18px">${t.students.map((x) => `<li><a href="${escHtml(M.stuLink(x.id))}">${escHtml(x.name)}</a> <span style="color:#7a8799">ID ${x.id}${x.grade ? ' · Class ' + escHtml(x.grade) : ''}${x.school ? ' · ' + escHtml(x.school) : ''}</span></li>`).join('')}</ul>` : '';
+  const msg = { to: t.assigneeEmail, subject: `New task: ${t.title} (due ${due})`, html: html.replace('<p style="margin:18px 0">', () => who + list + '<p style="margin:18px 0">') };
   try {
     // from the assigner's own mailbox when they connected one, otherwise from the hub's mailbox
     if (t.createdByEmail && G.tmAccount(t.createdByEmail)) await G.sendAs(t.createdByEmail, msg);
@@ -660,6 +662,34 @@ async function sendTaskMail(t, url) {
     return 'The mail could not be sent: ' + mailErr(e);
   }
 }
+// students a person may attach to a task: the owner any, a TM only their own
+function trackerStudents(req) {
+  const A = loadLatest();
+  const out = [];
+  const seen = new Set();
+  for (const m of team()) {
+    if (req.role !== 'owner' && m.name !== req.myTm) continue;
+    for (const s of (A && A.students && A.students[M.lhName(m)]) || [])
+      if (!seen.has(s.id) && seen.add(s.id)) out.push({ id: Number(s.id), name: String(s.name || '').replace(/\s+/g, ' ').trim(), grade: String(s.grade || ''), school: s.school || '', tm: m.name });
+  }
+  return out;
+}
+const clock = () => ({ today: istDate(), now: istNow().time.slice(0, 5) });
+// Preview only: nothing is created here
+app.post('/api/tracker/parse', (req, res) => {
+  if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
+  const me = trackerMe(req);
+  const people = trackerPeople().map((p) => {
+    const m = team().find((x) => x.name === p.name) || {};
+    return { name: p.name, owner: p.name === sender().name, aliases: [...new Set([p.name.split(' ')[0], m.lighthouseName, m.oldName].filter(Boolean))] };
+  });
+  try {
+    res.json(parseTask(String((req.body && req.body.text) || ''), { ...clock(), people, students: trackerStudents(req), me: me.name, role: req.role }));
+  } catch (e) {
+    console.log('[task-parse]', e.message);
+    res.status(500).json({ error: 'Could not read that. Fill the form by hand.' });
+  }
+});
 app.get('/api/tracker', (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
   const me = trackerMe(req);
@@ -675,7 +705,7 @@ app.get('/api/tracker', (req, res) => {
     const b = loadLatest() && board('progress');
     for (const row of (b && b.rows) || []) if (req.role === 'owner' || row.name === me.name) counts[row.name] = Object.fromEntries(AutoTasks.CATEGORIES.map((c) => [c.key, AutoTasks.snapshot(row, c.key).length]));
   } catch {}
-  res.json({ categories: AutoTasks.CATEGORIES.map(({ key, label }) => ({ key, label })), counts, reminders: { enabled: rem.enabled, lastRun: rem.lastRun || null }, today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
+  res.json({ now: clock().now, students: trackerStudents(req), categories: AutoTasks.CATEGORIES.map(({ key, label }) => ({ key, label })), counts, reminders: { enabled: rem.enabled, lastRun: rem.lastRun || null }, today: istDate(), me: me.name, myEmail: me.email, role: req.role, people: trackerPeople().map((p) => ({ name: p.name, photo: p.photo })), tasks: TeamTasks.load().filter((t) => trackerSees(req, t)) });
 });
 app.post('/api/tracker', async (req, res) => {
   if (req.role !== 'owner' && req.role !== 'tm') return res.status(403).json({ error: 'Not allowed.' });
@@ -687,7 +717,14 @@ app.post('/api/tracker', async (req, res) => {
       const names = [...new Set(Array.isArray(b.assignees) ? b.assignees : [b.assignee])].filter(Boolean);
       const people = names.map((n) => trackerPeople().find((p) => p.name === n));
       if (!people.length || people.some((p) => !p)) return res.status(400).json({ error: 'Choose a person from the team.' });
-      const fields = (who) => ({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, priority: b.priority, by: me.name, byEmail: me.email });
+      const dueTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(b.dueTime || '') ? b.dueTime : '';
+      if (b.dueTime && !dueTime) return res.status(400).json({ error: 'The time is not valid.' });
+      if (dueTime && b.due === istDate() && dueTime < clock().now) return res.status(400).json({ error: 'That time has already passed today.' });
+      const known = trackerStudents(req);
+      const wanted = [...new Set((Array.isArray(b.students) ? b.students : []).map(Number).filter(Boolean))];
+      const students = wanted.map((id) => known.find((s) => s.id === id));
+      if (students.some((s) => !s)) return res.status(403).json({ error: req.role === 'owner' ? 'A selected student was not found.' : 'You can attach only your own students.' });
+      const fields = (who) => ({ title: b.title, details: b.details, assignee: who.name, assigneeEmail: who.email, due: b.due, dueTime, students, priority: b.priority, by: me.name, byEmail: me.email });
       const skipped = [];
       let made;
       if (b.category) {
@@ -1309,7 +1346,7 @@ app.get('/api/students.csv', async (req, res) => {
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : '');
   const showParents = req.role === 'owner';
   const isTm = req.role === 'tm';
-  const head = ['TM', 'Student ID', 'Student', ...(showParents ? ['Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone'] : ['Parent 1 name', 'Parent 1 relation', 'Parent 2 name', 'Parent 2 relation']), 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
+  const head = ['TM', 'Student ID', 'Student', ...(showParents ? ['Parent 1 name', 'Parent 1 relation', 'Parent 1 phone', 'Parent 1 email', 'Parent 2 name', 'Parent 2 relation', 'Parent 2 phone', 'Parent 2 email'] : ['Parent 1 name', 'Parent 1 relation', 'Parent 2 name', 'Parent 2 relation']), 'Class', 'School', 'Batch', '1:1', 'Subscription lapsed', 'Joined', 'Regular classes held (month)', 'Regular classes attended (month)', 'Regular attendance %', 'All classes held (month)', 'All classes attended (month)', 'Absent streak (class days)', 'Last attended', 'On holiday today', 'Green %', 'Improvement %', 'IC2 load', 'Last parent contact', 'Parent contacts (30d)', 'Next renewal date'];
   const lines = [head.map(q).join(',')];
   const wanted = team().filter((m) => !req.query.tm || req.query.tm === m.name);
   let P = {};
@@ -1320,7 +1357,7 @@ app.get('/api/students.csv', async (req, res) => {
   }
   const par = (s, i) => {
     const g = (P[s.id] || [])[i] || {};
-    return showParents ? [g.name || '', g.relation || '', g.phone || ''] : [g.name || '', g.relation || ''];
+    return showParents ? [g.name || '', g.relation || '', g.phone || '', g.email || ''] : [g.name || '', g.relation || ''];
   };
   for (const m of team()) {
     if (req.query.tm && req.query.tm !== m.name) continue;
@@ -1705,7 +1742,7 @@ async function runTaskReminders() {
   const errors = [];
   let sent = 0;
   for (const e of list) {
-    const m = TaskRem.buildMail(e, istDate(), sender(), APP_URL());
+    const m = TaskRem.buildMail(e, istDate(), sender(), APP_URL(), istNow().time.slice(0, 5));
     try {
       await mailTo(e.email, m.subject, m.html);
       sent++;

@@ -470,3 +470,7 @@ th.sortable:hover { color: var(--ink, #1d2b2c); }
 .ld-wrap.sm .ld-ring b { font-size: 17px; } .ld-wrap.sm .ld-ring b i { font-size: 10px; }
 .ld-wrap.sm .ld-msg { font-size: 12px; }
 #ldOver { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(246, 244, 238, 0.86); }
+
+/* parent mail id */
+.par-mail { font-size: 12px; color: var(--ink-2); text-decoration: none; word-break: break-all; }
+.par-mail:hover { text-decoration: underline; color: #2b2f8f; }

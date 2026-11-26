@@ -20,7 +20,7 @@ function sheets(d) {
   const phone = (id) => {
     const p = d.parents && d.parents[id];
     const list = (p && (p.g || p)) || [];
-    return Array.isArray(list) ? list.map((x) => `${x.name || ''} (${x.relation || ''}) ${x.phone || ''}`.trim()).join(' | ') : '';
+    return Array.isArray(list) ? list.map((x) => `${x.name || ''} (${x.relation || ''}) ${x.phone || ''} ${x.email || ''}`.trim()).join(' | ') : '';
   };
   const labels = Object.fromEntries((d.tasks || []).map((t) => [t.key, t]));
   const tasks = [];
@@ -28,7 +28,7 @@ function sheets(d) {
     for (const [key, t] of Object.entries(row.tasks || {}))
       for (const it of t.items || []) tasks.push([row.name, (labels[key] || {}).label || key, (it.cells || []).join(' | '), it.link || '']);
   return [
-    ['students', 'Students', ['TM', 'Student ID', 'Student', 'Class', 'School', 'Batch', 'Parents and phones', 'Green %', 'Process %', 'Last contact', 'Renewal'],
+    ['students', 'Students', ['TM', 'Student ID', 'Student', 'Class', 'School', 'Batch', 'Parents, phones and mail IDs', 'Green %', 'Process %', 'Last contact', 'Renewal'],
       (d.students || []).map((s) => [s.tm, s.id, s.name, s.grade, s.school, s.batch, phone(s.id), s.greenPct, s.processPct, ist(s.lastContact), text(s.renewal)])],
     ['tasks', 'Pending tasks', ['TM', 'Task', 'Details', 'Link'], tasks],
     ['ptms', 'PTMs', ['Date', 'Time', 'TM', 'Student ID', 'Student', 'Status', 'Parent minutes', 'Agenda', 'Remark'],
@@ -37,8 +37,8 @@ function sheets(d) {
       ((d.renewals && d.renewals.rows) || []).map((r) => [r.id, r.name, r.school, r.grade, r.tm, r.office, r.status, r.atStatus, r.rtype, r.att, r.remarks])],
     ['tutors', 'Tutors', ['Tutor ID', 'Tutor', 'Mobile', 'Mail', 'Type', 'Subject', 'Class', 'Other classes', 'City', 'Language', 'Joined', 'Tutor manager', 'Sr tutor manager', 'Leaving status', 'Last working day'],
       ((d.tutors && d.tutors.rows) || []).map((t) => [t.id, t.name, t.mobile, t.email, t.type, t.subject, t.grade, t.grades2, t.city, t.lang, t.joined, t.tm, t.stm, t.leaving, t.lwdRec || t.lwd])],
-    ['assigned-tasks', 'Assigned tasks', ['Task', 'Details', 'Assigned to', 'Assigned by', 'Assigned on', 'Due', 'Status', 'Completed on', 'Completion remarks', 'Priority', 'Notes'],
-      (d.teamTasks || []).map((t) => [t.title, t.details, t.assignee, t.createdBy, ist(t.assignedAt), t.due, t.status, ist(t.doneAt), t.comment, t.priority, (t.remarks || []).map((r) => r.by + ': ' + r.text).join(' | ')])],
+    ['assigned-tasks', 'Assigned tasks', ['Task', 'Details', 'Assigned to', 'Assigned by', 'Assigned on', 'Due', 'Status', 'Completed on', 'Completion remarks', 'Priority', 'Notes', 'Due time', 'Students'],
+      (d.teamTasks || []).map((t) => [t.title, t.details, t.assignee, t.createdBy, ist(t.assignedAt), t.due, t.status, ist(t.doneAt), t.comment, t.priority, (t.remarks || []).map((r) => r.by + ': ' + r.text).join(' | '), t.dueTime || '', (t.students || []).map((s) => s.name + ' (' + s.id + ')').join('; ')])],
     ['tutor-leaves', 'Tutor leaves', ['Tutor', 'Tutor manager', 'Type', 'From', 'To', 'Remarks'], (d.leaves || []).map((l) => [l.name, l.tm, l.type, l.from, l.to, l.remarks])],
   ];
 }

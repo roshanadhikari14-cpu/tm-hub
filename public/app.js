@@ -866,7 +866,9 @@ async function tutors() {
 // ---------- Task tracker ----------
 // A board of four lanes (upcoming, due today, past due, completed) with the assignee's photo on every card,
 // remarks on each task, drag to complete, and a little celebration when something is finished.
-const tkState = { who: '', open: new Set(), seen: new Set() };
+const tkState = { who: '', draft: '', open: new Set(), seen: new Set() };
+// the popup is shared with other screens: drop the wide style when it closes
+if ($('#modal')) new MutationObserver(() => $('#modal').hidden && $('#modalCard').classList.remove('tk-wide')).observe($('#modal'), { attributes: true, attributeFilter: ['hidden'] });
 const tkDay = (d) => new Date(d.length === 10 ? d + 'T12:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: d.length === 10 ? 'UTC' : 'Asia/Kolkata' });
 const tkDays = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
 const TK_LANES = [
@@ -875,7 +877,21 @@ const TK_LANES = [
   ['late', 'Past due date', 'red'],
   ['done', 'Completed', 'green'],
 ];
-const tkLane = (t, today) => (t.status === 'done' ? 'done' : t.due < today ? 'late' : t.due === today ? 'today' : 'next');
+// a task with a time is late once that time has passed on its day
+const tkLane = (t, today, now) => (t.status === 'done' ? 'done' : t.due < today || (t.due === today && t.dueTime && now > t.dueTime) ? 'late' : t.due === today ? 'today' : 'next');
+const tkClock = (v) => {
+  const [h, m] = String(v).split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+};
+// the description and subject line follow the students picked in the preview
+const tkStudentLine = (s) => `Student: ${s.name} (ID ${s.id}${s.grade ? ', Class ' + s.grade : ''}${s.school ? ', ' + s.school : ''})`;
+const tkCompose = (p, picked) => [p.action, '', ...picked.map(tkStudentLine), p.schoolSubject ? 'Subject: ' + p.schoolSubject : ''].filter((x, i) => x || i === 1).join('\n').trim();
+const tkSubject = (p, picked) => {
+  const head = p.category ? p.category + (p.schoolSubject ? ' · ' + p.schoolSubject : '') : String(p.subject || '').split(' – ')[0];
+  const names = picked.map((s) => s.name);
+  const who = names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(', ');
+  return [head, who].filter(Boolean).join(' – ');
+};
 const tkAvatar = (p, name, cls) =>
   p && p.photo
     ? `<img class="tk-av ${cls || ''}" src="/photos/${esc(p.photo)}" alt="" loading="lazy">`
@@ -916,7 +932,7 @@ async function tracker() {
     return;
   }
   const person = (n) => j.people.find((p) => p.name === n);
-  const all = j.tasks.map((t) => ({ ...t, lane: tkLane(t, j.today), remarks: t.remarks || [], priority: t.priority || 'Medium' }));
+  const all = j.tasks.map((t) => ({ ...t, lane: tkLane(t, j.today, j.now), remarks: t.remarks || [], students: t.students || [], priority: t.priority || 'Medium' }));
   const byId = (id) => all.find((t) => t.id === id);
   const mine = (t) => j.role === 'owner' || t.createdByEmail === j.myEmail;
   const canFinish = (t) => mine(t) || t.assignee === j.me;
@@ -927,7 +943,8 @@ async function tracker() {
       return `<span class="tk-due">Done ${tkDay(t.doneAt)}${late > 0 ? ` · <b class="tk-red">${late} day${late === 1 ? '' : 's'} past</b>` : ''}</span>`;
     }
     const past = tkDays(t.due, j.today);
-    return `<span class="tk-due">Due ${tkDay(t.due)}${past > 0 ? ` · <b class="tk-red">${past} day${past === 1 ? '' : 's'} past</b>` : ''}</span>`;
+    const timePassed = past === 0 && t.lane === 'late';
+    return `<span class="tk-due">Due ${tkDay(t.due)}${t.dueTime ? ', ' + tkClock(t.dueTime) : ''}${past > 0 ? ` · <b class="tk-red">${past} day${past === 1 ? '' : 's'} past</b>` : timePassed ? ' · <b class="tk-red">time passed</b>' : ''}</span>`;
   };
   // predefined task: how many of its items are cleared, with the list behind a click
   const autoBlock = (t) => {
@@ -947,6 +964,7 @@ async function tracker() {
         ${mine(t) && t.assignee !== j.me && t.lane !== 'done' ? `<button class="tk-ico" data-tk="remind" title="${t.mail === 'sent' ? 'Mailed. Send the mail again' : 'Send the task mail'}">@</button>` : ''}</div>
       <h4>${esc(t.title)}</h4>
       ${t.details ? `<p class="tk-details">${esc(t.details)}</p>` : ''}
+      ${t.students.length ? `<div class="tk-stus">${t.students.map((s) => `<button class="tk-stu" data-tk="student" data-sid="${s.id}" title="See ${esc(s.name)}'s details">🎓 ${esc(s.name)}${s.grade ? `<small>Class ${esc(s.grade)}</small>` : ''}</button>`).join('')}</div>` : ''}
       <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>by ${esc(t.createdBy)}</small></div></div>
       <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
       ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
@@ -973,6 +991,11 @@ async function tracker() {
     const shown = j.role === 'owner' ? j.people : j.people.filter((p) => p.name === j.me || all.some((t) => t.assignee === p.name));
     const people = shown.map((p) => ({ ...p, open: all.filter((t) => t.assignee === p.name && t.lane !== 'done').length, late: all.filter((t) => t.assignee === p.name && t.lane === 'late').length }));
     view.innerHTML = `
+      <form class="tk-quick" id="tkQuickForm">
+        <label for="tkQuick">Write the task in one line: who, which student, what, when</label>
+        <div><textarea id="tkQuick" rows="2" maxlength="2000" placeholder="e.g. Ask Preety to schedule PTM with Paridhi tomorrow 5pm, urgent. Parent is worried about science marks.">${esc(tkState.draft || '')}</textarea><button type="submit" class="btn btn-primary" id="tkPreview">Preview</button></div>
+        <small>Nothing is created until you press Go on the preview.</small>
+      </form>
       <div class="tk-head">
         <div class="tk-gauge" title="${done} of ${list.length} completed"><svg viewBox="0 0 100 100"><circle class="g-t" cx="50" cy="50" r="42"/><circle class="g-b" cx="50" cy="50" r="42" stroke-dasharray="263.9" stroke-dashoffset="${263.9 * (1 - pct / 100)}"/></svg><b>${pct}<i>%</i></b></div>
         <div class="tk-people">
@@ -1006,6 +1029,7 @@ async function tracker() {
     }
   };
   const modal = (head, fields, label, onOk) => {
+    $('#modalCard').classList.remove('tk-wide');
     $('#modalCard').innerHTML = '<h3>' + head + '</h3><div class="form">' + fields + '</div><div class="actions"><button type="button" class="btn btn-ghost" id="tkNo">Cancel</button><button type="button" class="btn btn-primary" id="tkOk">' + label + '</button></div>';
     $('#modal').hidden = false;
     $('#tkNo').onclick = () => ($('#modal').hidden = true);
@@ -1035,35 +1059,184 @@ async function tracker() {
     boxes.forEach((x) => (x.onchange = label));
     label();
   };
-  const newTask = () => {
+  const newTask = (parsed) => {
+    const p = parsed && parsed.action !== undefined ? parsed : null;
+    const byId_ = new Map(j.students.map((s) => [s.id, s]));
+    // one group per name found in the text; picked = student id, 0 = "none of these", null = not decided
+    const groups = p ? p.students.map((g) => ({ mention: g.mention, matches: g.matches, picked: g.selected })) : [];
+    const extra = [];
+    const picked = () => {
+      const ids = [...groups.map((g) => g.picked), ...extra].filter(Boolean);
+      return [...new Set(ids)].map((id) => byId_.get(id) || groups.flatMap((g) => g.matches).find((m) => m.id === id)).filter(Boolean);
+    };
+    const wanted = p ? p.assignees : tkState.who ? [tkState.who] : [];
+    const edited = { title: false, details: false };
+    const tag = (on) => (on ? ' <em class="tk-assumed">assumed, please check</em>' : '');
+    const opt = (s) => `${esc(s.name)}<small>${[s.grade ? 'Class ' + s.grade : '', s.school, s.tm ? 'TM ' + s.tm.split(' ')[0] : '', 'ID ' + s.id].filter(Boolean).map(esc).join(' · ')}</small>`;
     modal(
-      '＋ Assign a task',
-      `<label>Task type<select id="tkType"><option value="">My own task</option>${(j.categories || []).map((c) => `<option value="${c.key}">${esc(c.label)} (from Lighthouse)</option>`).join('')}</select></label><p class="tk-small" id="tkPending" hidden></p><label id="tkTitleRow">Task<input id="tkTitle" maxlength="200" placeholder="What needs to be done"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000" placeholder="Optional"></textarea></label>
-       <div class="tk-lbl">Assign to <small>(pick one or more)</small> <button type="button" class="tk-btn" id="tkAll">Select all TMs</button></div><div class="tk-pick">${j.people.map((p, i) => `<label title="${esc(p.name)}"><input type="checkbox" name="tkTo" value="${esc(p.name)}" ${tkState.who && p.name === tkState.who ? 'checked' : ''}>${tkAvatar(p, p.name, 'lg')}<small>${esc(p.name.split(' ')[0])}</small></label>`).join('')}</div>
-       <label>Due date<input id="tkDue" type="date" min="${j.today}" value="${j.today}"></label>${priorityField('Medium')}<p class="note">A mail goes to the person the task is assigned to.</p>`,
-      'Assign and send mail',
-      () => send({ action: 'create', category: $('#tkType').value, title: $('#tkTitle').value, details: $('#tkDetails').value, assignees: $$('input[name=tkTo]:checked').map((x) => x.value), due: $('#tkDue').value, priority: $('#tkPri').value }, 'Task assigned.')
+      p ? '✨ Check before creating' : '＋ Assign a task',
+      `<div class="tk-warn" id="tkWarn" hidden></div>
+       <label>Task type<select id="tkType"><option value="">My own task</option>${(j.categories || []).map((c) => `<option value="${c.key}">${esc(c.label)} (from Lighthouse)</option>`).join('')}</select></label><p class="tk-small" id="tkPending" hidden></p>
+       <label id="tkTitleRow">Subject<input id="tkTitle" maxlength="200" placeholder="What needs to be done" value="${p ? esc(p.subject) : ''}"></label>
+       <label>Description<textarea id="tkDetails" rows="${p ? 6 : 3}" maxlength="2000" placeholder="Optional">${p ? esc(tkCompose(p, picked())) : ''}</textarea></label>
+       <div id="tkStuRow"><div class="tk-lbl">Students</div><div id="tkStuBox"></div>
+         <input id="tkStuAdd" list="tkStuList" autocomplete="off" placeholder="Add a student: type a name or ID"><datalist id="tkStuList">${j.students.map((s) => `<option value="${esc(s.name + ' · ' + s.id)}">${esc([s.grade ? 'Class ' + s.grade : '', s.school].filter(Boolean).join(' · '))}</option>`).join('')}</datalist></div>
+       <div class="tk-lbl">Assign to${tag(p && p.assumed.assignee)} <small>(pick one or more)</small> <button type="button" class="tk-btn" id="tkAll">Select all TMs</button></div><div class="tk-pick">${j.people.map((x) => `<label title="${esc(x.name)}"><input type="checkbox" name="tkTo" value="${esc(x.name)}" ${wanted.includes(x.name) ? 'checked' : ''}>${tkAvatar(x, x.name, 'lg')}<small>${esc(x.name.split(' ')[0])}</small></label>`).join('')}</div>
+       <div class="tk-row"><label>Due date${tag(p && p.assumed.date)}<input id="tkDue" type="date" min="${j.today}" value="${p && p.due >= j.today ? p.due : j.today}"></label><label>Time${tag(p && p.assumed.time)}<input id="tkTime" type="time" value="${p ? p.time : ''}"></label>${priorityField(p ? p.priority : 'Medium')}</div>
+       <p class="note">A mail goes to the person the task is assigned to.</p>`,
+      p ? 'Go – create task' : 'Assign and send mail',
+      () => {
+        const open = groups.filter((g) => g.picked === null);
+        if (!$('#tkType').value && open.length) {
+          toast('Choose the student for “' + open[0].mention + '” first.', 'err');
+          return;
+        }
+        const type = $('#tkType').value;
+        return send(
+          { action: 'create', category: type, title: $('#tkTitle').value, details: $('#tkDetails').value, assignees: $$('input[name=tkTo]:checked').map((x) => x.value), students: type ? [] : picked().map((s) => s.id), due: $('#tkDue').value, dueTime: $('#tkTime').value, priority: $('#tkPri').value },
+          'Task assigned.',
+          () => {
+            if (p) tkState.draft = '';
+          }
+        );
+      }
     );
+    $('#modalCard').classList.add('tk-wide');
+    const refreshText = () => {
+      if (!p) return;
+      if (!edited.title) $('#tkTitle').value = tkSubject(p, picked());
+      if (!edited.details) $('#tkDetails').value = tkCompose(p, picked());
+    };
+    // warnings follow what is picked now: students still to choose, and a student whose TM is not an assignee
+    const paintWarnings = () => {
+      const fixed = p ? p.warnings.filter((w) => !/matches \d+ students|'s student\.$/.test(w) && !/Choose who the task/.test(w)) : [];
+      const names = $$('input[name=tkTo]:checked').map((x) => x.value);
+      const live = [
+        ...groups.filter((g) => g.picked === null).map((g) => `“${g.mention}” matches ${g.matches.length} students: pick the right one.`),
+        ...(p && !names.length ? ['Choose who the task is for.'] : []),
+        ...(names.length ? picked().filter((s) => s.tm && !names.includes(s.tm)).map((s) => `${s.name} is ${s.tm.split(' ')[0]}'s student.`) : []),
+      ];
+      const all = [...fixed, ...live];
+      $('#tkWarn').hidden = !all.length;
+      $('#tkWarn').innerHTML = all.map((w) => '<p>⚠ ' + esc(w) + '</p>').join('');
+    };
+    const paintStudents = () => {
+      const choose = groups
+        .map((g, i) =>
+          g.matches.length > 1 || g.picked === 0
+            ? `<fieldset class="tk-match ${g.picked === null ? 'need' : ''}"><legend>“${esc(g.mention)}” · ${g.matches.length} student${g.matches.length > 1 ? 's' : ''} match, pick one</legend>${g.matches.map((m) => `<label><input type="radio" name="tkM${i}" value="${m.id}" ${g.picked === m.id ? 'checked' : ''}><span>${opt(m)}${m.own ? '<b>their student</b>' : ''}</span></label>`).join('')}<label><input type="radio" name="tkM${i}" value="0" ${g.picked === 0 ? 'checked' : ''}><span>None of these</span></label></fieldset>`
+            : ''
+        )
+        .join('');
+      const sel = picked();
+      $('#tkStuBox').innerHTML = choose + (sel.length ? `<div class="tk-stus">${sel.map((s) => `<span class="tk-stu sel">🎓 ${esc(s.name)}<small>${esc([s.grade ? 'Class ' + s.grade : '', s.tm ? 'TM ' + s.tm.split(' ')[0] : ''].filter(Boolean).join(' · '))}</small><button type="button" data-drop="${s.id}" aria-label="Remove ${esc(s.name)}">×</button></span>`).join('')}</div>` : choose ? '' : '<p class="tk-small">No student attached.</p>');
+      paintWarnings();
+    };
+    paintStudents();
+    $('#tkStuBox').onchange = (e) => {
+      const m = /^tkM(\d+)$/.exec(e.target.name || '');
+      if (!m) return;
+      groups[Number(m[1])].picked = Number(e.target.value);
+      paintStudents();
+      refreshText();
+    };
+    $('#tkStuBox').onclick = (e) => {
+      const b = e.target.closest('[data-drop]');
+      if (!b) return;
+      const id = Number(b.dataset.drop);
+      groups.forEach((g) => g.picked === id && (g.picked = 0));
+      const at = extra.indexOf(id);
+      if (at >= 0) extra.splice(at, 1);
+      paintStudents();
+      refreshText();
+    };
+    $('#tkStuAdd').onchange = (e) => {
+      const m = e.target.value.match(/(\d+)\s*$/);
+      const s = m && byId_.get(Number(m[1]));
+      if (!s) return toast('Pick the student from the list.', 'err');
+      if (!picked().some((x) => x.id === s.id)) extra.push(s.id);
+      e.target.value = '';
+      paintStudents();
+      refreshText();
+    };
+    $('#tkTitle').oninput = () => (edited.title = true);
+    $('#tkDetails').oninput = () => (edited.details = true);
     wireAll();
-    // a predefined type needs no title; show how much is pending for each person picked
+    $$('input[name=tkTo]').forEach((x) => x.addEventListener('change', paintWarnings));
+    $('#tkAll').addEventListener('click', paintWarnings);
+    paintWarnings();
+    // a predefined type needs no title or students; show how much is pending for each person picked
     const pending = () => {
       const key = $('#tkType').value;
       $('#tkTitleRow').hidden = Boolean(key);
+      $('#tkStuRow').hidden = Boolean(key);
       const box = $('#tkPending');
       box.hidden = !key;
       if (!key) return;
-      const picked = $$('input[name=tkTo]:checked').map((x) => x.value);
-      box.textContent = !picked.length
+      const names = $$('input[name=tkTo]:checked').map((x) => x.value);
+      box.textContent = !names.length
         ? 'Pick who it is for to see what is pending.'
-        : 'Pending now: ' + picked.map((n) => n.split(' ')[0] + ' ' + (j.counts[n] ? j.counts[n][key] : 'none')).join(', ') + '. The task completes itself when Lighthouse shows them cleared.' + (j.role === 'owner' ? '' : ' You can create these only for yourself.');
+        : 'Pending now: ' + names.map((n) => n.split(' ')[0] + ' ' + (j.counts[n] ? j.counts[n][key] : 'none')).join(', ') + '. The task completes itself when Lighthouse shows them cleared.' + (j.role === 'owner' ? '' : ' You can create these only for yourself.');
     };
     $('#tkType').onchange = pending;
     $$('input[name=tkTo]').forEach((x) => x.addEventListener('change', pending));
     $('#tkAll').addEventListener('click', pending);
   };
 
+  // the student card behind a chip: who they are, parents (for those allowed), recent PTMs, and the Lighthouse profile
+  const studentCard = async (sid, name) => {
+    const crm = CRM + '/students/view/' + encodeURIComponent(sid);
+    const link = `<a class="btn btn-primary" href="${crm}" target="_blank" rel="noopener">Open in Lighthouse ↗</a>`;
+    const frame = (body) => {
+      $('#modalCard').innerHTML = `<h3>🎓 ${esc(name)}</h3>${body}<div class="actions"><button type="button" class="btn btn-ghost" id="tkNo">Close</button>${link}</div>`;
+      $('#modalCard').classList.add('tk-wide');
+      $('#modal').hidden = false;
+      $('#tkNo').onclick = () => ($('#modal').hidden = true);
+    };
+    frame(loader({ small: true, text: 'Loading student details' }));
+    const token = (studentCard.token = (studentCard.token || 0) + 1);
+    let d;
+    try {
+      d = await api('/api/ptm/student/' + encodeURIComponent(sid));
+    } catch (err) {
+      if (token === studentCard.token && !$('#modal').hidden) frame(`<p class="note">${esc(err.message)}</p>`);
+      return;
+    }
+    if (token !== studentCard.token || $('#modal').hidden) return;
+    const s = d.student || {};
+    const att = s.att && s.att.regHeld ? Math.round((100 * s.att.regAttended) / s.att.regHeld) + '% (' + s.att.regAttended + ' of ' + s.att.regHeld + ' classes)' : '—';
+    const row = (k, v) => `<div><small>${k}</small><b>${v === 0 || v ? esc(v) : '—'}</b></div>`;
+    frame(`<div class="tk-facts">${row('Student ID', d.id)}${row('Class', s.grade)}${row('School', s.school)}${row('Batch', s.batch)}${row('Tutor manager', d.tm)}${row('Attendance this month', att)}${row('Green %', s.greenPct == null ? '' : s.greenPct + '%')}${row('Last parent contact', s.lastContact ? new Date(s.lastContact).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : '')}</div>
+      <h4 class="tk-h">Parents</h4>${(d.parents || []).map((x) => `<p class="tk-line"><b>${esc(x.name)}</b> ${esc(x.relation || '')} ${x.phone ? `<a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>` : ''}${x.email ? ' · ' + mailLink(x.email) : ''}</p>`).join('') || '<p class="tk-small">No parent on record.</p>'}
+      <h4 class="tk-h">Recent PTMs</h4>${(d.ptms || []).slice(0, 4).map((m) => `<p class="tk-line">${esc(m.date)} · ${esc(m.status)} · ${esc(m.host)}</p>`).join('') || '<p class="tk-small">No PTM on record.</p>'}
+      ${(d.tasks || []).length ? `<h4 class="tk-h">Open items today</h4>${d.tasks.slice(0, 6).map((x) => `<p class="tk-line">${esc(x.task)}</p>`).join('')}` : ''}
+      ${d.error ? `<p class="tk-red tk-small">${esc(d.error)}</p>` : ''}`);
+  };
+
   function wire() {
-    $('#tkNew').onclick = newTask;
+    $('#tkNew').onclick = () => newTask();
+    const quick = $('#tkQuick');
+    quick.oninput = () => (tkState.draft = quick.value);
+    quick.onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        $('#tkQuickForm').requestSubmit();
+      }
+    };
+    $('#tkQuickForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const text = quick.value.trim();
+      if (text.length < 3) return toast('Type the task first.', 'err');
+      const btn = $('#tkPreview');
+      btn.disabled = true;
+      try {
+        newTask(await api('/api/tracker/parse', { body: { text } }));
+      } catch (err) {
+        toast(err.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    };
     if ($('#tkHourly'))
       $('#tkHourly').onchange = async (e) => {
         try {
@@ -1086,7 +1259,10 @@ async function tracker() {
       const el = btn.closest('.tk-card');
       const t = byId(el.dataset.id);
       const what = btn.dataset.tk;
-      if (what === 'items') {
+      if (what === 'student') {
+        const s = t.students.find((x) => String(x.id) === btn.dataset.sid);
+        if (s) studentCard(s.id, s.name);
+      } else if (what === 'items') {
         const key = 'list:' + t.id;
         tkState.open[tkState.open.has(key) ? 'delete' : 'add'](key);
         const list = el.querySelector('.tk-items');
@@ -1105,9 +1281,9 @@ async function tracker() {
       else if (what === 'edit')
         modal(
           '✎ Edit task',
-          `<label>Task<input id="tkTitle" maxlength="200" value="${esc(t.title)}"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000">${esc(t.details)}</textarea></label><label>Due date<input id="tkDue" type="date" value="${t.due}"></label>${priorityField(t.priority)}`,
+          `<label>Task<input id="tkTitle" maxlength="200" value="${esc(t.title)}"></label><label>Details<textarea id="tkDetails" rows="3" maxlength="2000">${esc(t.details)}</textarea></label><label>Due date<input id="tkDue" type="date" value="${t.due}"></label><label>Time<input id="tkTime" type="time" value="${t.dueTime || ''}"></label>${priorityField(t.priority)}`,
           'Save',
-          () => send({ action: 'edit', id: t.id, title: $('#tkTitle').value, details: $('#tkDetails').value, due: $('#tkDue').value, priority: $('#tkPri').value }, 'Saved.')
+          () => send({ action: 'edit', id: t.id, title: $('#tkTitle').value, details: $('#tkDetails').value, due: $('#tkDue').value, dueTime: $('#tkTime').value, priority: $('#tkPri').value }, 'Saved.')
         );
     };
     board.onsubmit = (e) => {
@@ -1551,13 +1727,14 @@ let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
 const parentMap = {};
 const isOwnerUI = () => true; // parent names show for everyone allowed; numbers only arrive from the server for the owner
 const telLink = (p, id) => (p ? (id ? `<a class="tel" href="${esc(CRM)}/students/view/${esc(id)}" target="_blank" rel="noopener" title="Open in Lighthouse to call">${esc(p)} <span class="ext">↗</span></a>` : `<a class="tel" href="tel:${esc(String(p).replace(/[^+0-9]/g, ''))}">${esc(p)}</a>`) : '');
+const mailLink = (v) => `<a class="par-mail" href="mailto:${encodeURIComponent(v).replace('%40', '@')}" title="Write to ${esc(v)}">✉ ${esc(v)}</a>`;
 function parentCell(id) {
   const g = parentMap[id];
   if (!g) return '<span style="color:var(--ink-3)">…</span>';
   if (!g.length) return '<span style="color:var(--ink-3)">Not in Lighthouse</span>';
   return g
     .slice(0, 2)
-    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}${x.phone ? `<br>${telLink(x.phone, id)}` : ''}</div>`)
+    .map((x) => `<div class="par"><b>${esc(x.name || '—')}</b>${x.relation ? ` <small style="color:var(--ink-3)">${esc(x.relation)}</small>` : ''}${x.primary ? ' <span class="tag">Primary</span>' : ''}${x.phone ? `<br>${telLink(x.phone, id)}` : ''}${x.email ? `<br>${mailLink(x.email)}` : ''}</div>`)
     .join('');
 }
 function studentRows(students) {
