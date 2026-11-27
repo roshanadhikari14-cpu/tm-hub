@@ -773,8 +773,12 @@ app.post('/api/tracker', async (req, res) => {
         if (!cat) return res.status(400).json({ error: 'Unknown task type.' });
         // these carry student names, so a TM can set them only for themselves
         if (req.role !== 'owner' && people.some((p) => p.name !== req.myTm)) return res.status(403).json({ error: 'You can create predefined tasks only for yourself.' });
-        await refresh().catch(() => {});
-        const A = loadLatest();
+        // a full Lighthouse reload takes long: use the data already here unless it is old or this list failed in it
+        let A = loadLatest();
+        if (!A || Date.now() - new Date(A.fetchedAt).getTime() > 20 * 60 * 1000 || AutoTasks.unreliable(cat.key, A.errors)) {
+          await refresh().catch(() => {});
+          A = loadLatest();
+        }
         if (!A || AutoTasks.unreliable(cat.key, A.errors)) return res.status(502).json({ error: 'Lighthouse did not answer for this list. Try again in a minute.' });
         const rows = board('progress').rows;
         const ready = [];
@@ -786,16 +790,20 @@ app.post('/api/tracker', async (req, res) => {
         if (!ready.length) return res.status(400).json({ error: `Nothing is pending under ${cat.label} for ${skipped.join(', ')}.` });
         made = ready.map(([who, items]) => [who, TeamTasks.create({ ...fields(who), title: `${cat.label}: clear ${items.length} pending`, auto: { key: cat.key, label: cat.label, items, left: items.map((x) => x.id), checkedAt: null } }, istDate())]);
       } else made = people.map((who) => [who, TeamTasks.create(fields(who), istDate())]);
-      const failed = [];
-      let mailed = 0;
-      for (const [who, t] of made) {
-        // no mail to yourself
-        const mail = who.name === me.name ? '' : await sendTaskMail(t, baseUrl(req));
-        TeamTasks.update(t.id, (x) => (x.mail = mail));
-        if (mail === 'sent') mailed++;
-        else if (mail) failed.push(who.name + ': ' + mail);
-      }
-      return res.json({ ok: true, count: made.length, mailed, skipped, mail: failed.length ? failed.join(' ') : mailed ? 'sent' : '' });
+      // no mail to yourself
+      const toMail = made.filter(([who]) => who.name !== me.name).map(([, t]) => t.id);
+      for (const id of toMail) TeamTasks.update(id, (x) => (x.mail = 'sending'));
+      return res.json({ ok: true, count: made.length, skipped, toMail });
+    }
+    if (b.action === 'mail') {
+      // the task mails for what was just created, all at the same time; each is sent only once
+      const wanted = new Set(Array.isArray(b.ids) ? b.ids.map(String) : []);
+      const list = TeamTasks.load().filter((x) => wanted.has(x.id) && x.mail === 'sending' && (req.role === 'owner' || x.createdByEmail === me.email));
+      for (const x of list) TeamTasks.update(x.id, (y) => (y.mail = 'queued'));
+      const results = await Promise.all(list.map(async (x) => [x, await sendTaskMail(x, baseUrl(req))]));
+      for (const [x, mail] of results) TeamTasks.update(x.id, (y) => (y.mail = mail));
+      const failed = results.filter(([, m]) => m !== 'sent').map(([x, m]) => x.assignee + ': ' + m);
+      return res.json({ ok: true, mailed: results.length - failed.length, failed });
     }
     const t = TeamTasks.load().find((x) => x.id === b.id);
     if (!t || !trackerSees(req, t)) return res.status(404).json({ error: 'Task not found. Reload the page.' });

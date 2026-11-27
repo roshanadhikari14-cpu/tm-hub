@@ -212,3 +212,7 @@ a.btn, a.btn:hover { text-decoration: none; }
 .tk-clear { margin: 8px 0 0; background: #dcfae6; color: #067647; font-weight: 700; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 @media (max-width: 900px) { #modalCard.tk-wide > .tk-two { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .tk-tile, .tk-group { animation: none !important; transition: none !important; } }
+
+/* the form styles above must not bring back a hidden row */
+#modalCard.tk-wide [hidden] { display: none !important; }
+#ldOver { z-index: 120; }

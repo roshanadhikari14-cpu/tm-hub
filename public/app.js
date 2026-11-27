@@ -966,7 +966,7 @@ async function tracker() {
       ${t.students.length ? `<div class="tk-stus">${t.students.map((s) => `<button class="tk-stu" data-tk="student" data-sid="${s.id}" title="See ${esc(s.name)}'s details">🎓 ${esc(s.name)}${s.grade ? `<small>Class ${esc(s.grade)}</small>` : ''}</button>`).join('')}</div>` : ''}
       <div class="tk-who">${tkAvatar(person(t.assignee), t.assignee)}<div><b>${esc(t.assignee)}</b><small>by ${esc(t.createdBy)}</small></div></div>
       <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
-      ${t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
+      ${t.mail === 'sending' || t.mail === 'queued' ? '<p class="tk-small">✉ Sending the mail…</p>' : t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
       ${t.auto ? autoBlock(t) : ''}
       ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
       ${t.remarks.length ? `<p class="tk-last"><b>${esc(t.remarks[t.remarks.length - 1].text)}</b><small>${esc(t.remarks[t.remarks.length - 1].by.split(' ')[0])}</small></p>` : ''}
@@ -1013,13 +1013,28 @@ async function tracker() {
 
   const send = async (body, done, after) => {
     try {
-      const r = await api('/api/tracker', { body });
+      if (body.action === 'create') loaderShow('Creating the task');
+      let r;
+      try {
+        r = await api('/api/tracker', { body });
+      } finally {
+        loaderHide();
+      }
       $('#modal').hidden = true;
       if (r.skipped && r.skipped.length) toast('Assigned. Nothing pending for ' + r.skipped.join(', ') + ', so they got no task.', 'ok');
       if (r.doneMail) toast(r.doneMail === 'sent' ? 'Marked complete. Mail sent to you and the TM.' : 'Marked complete. ' + r.doneMail, r.doneMail === 'sent' ? 'ok' : 'err');
       else if (r.mail && r.mail !== 'sent') toast('Saved. ' + r.mail, 'err');
       else if (done && !r.doneMail) toast(r.mail === 'sent' ? done + ' Mail sent.' : done, 'ok');
       if (after) after();
+      // mails go out behind the board, so assigning to everyone does not keep you waiting
+      if (r.toMail && r.toMail.length)
+        api('/api/tracker', { body: { action: 'mail', ids: r.toMail } })
+          .then((m) => {
+            if (m.failed.length) toast('Task saved. ' + m.failed.join(' '), 'err');
+            else if (m.mailed) toast(m.mailed + ' task mail' + (m.mailed === 1 ? '' : 's') + ' sent', 'ok');
+            if (location.hash.startsWith('#/tracker') && $('#modal').hidden && !document.activeElement.closest('input, textarea, select')) tracker();
+          })
+          .catch((err) => toast('Task saved, but the mail failed: ' + err.message, 'err'));
       await tracker();
     } catch (err) {
       toast(err.message, 'err');
