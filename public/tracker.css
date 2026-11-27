@@ -66,7 +66,7 @@
 .tk-result b { display: block; font-size: 11px; color: #067647; }
 .tk-result small { display: block; font-size: 11px; color: var(--ink-3); margin-top: 2px; }
 .tk-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-.tk-btn { border: 1px solid #dfe3ec; background: #fff; border-radius: 8px; padding: 5px 9px; font: 600 12px/1.2 inherit; font-family: inherit; cursor: pointer; transition: transform 0.15s, background 0.2s, border-color 0.2s; }
+.tk-btn { border: 1px solid #dfe3ec; background: #fff; border-radius: 8px; padding: 5px 9px; font-family: inherit; font-weight: 600; font-size: 12px; line-height: 1.2; cursor: pointer; transition: transform 0.15s, background 0.2s, border-color 0.2s; }
 .tk-btn:hover { transform: translateY(-1px); border-color: #2b2f8f; }
 .tk-btn:active { transform: scale(0.95); }
 .tk-btn.on { background: #eef0ff; border-color: #2b2f8f; }
@@ -103,7 +103,7 @@
 .tk-bar { height: 7px; background: #e6e9ef; border-radius: 4px; overflow: hidden; }
 .tk-bar i { display: block; height: 100%; background: #16a34a; border-radius: 4px; transition: width 0.6s cubic-bezier(0.22, 0.61, 0.36, 1); animation: tkGrow 0.8s ease both; }
 @keyframes tkGrow { from { width: 0; } }
-.tk-link { border: 0; background: none; padding: 4px 0 0; font: 600 11.5px/1.3 inherit; font-family: inherit; color: #2b2f8f; cursor: pointer; }
+.tk-link { border: 0; background: none; padding: 4px 0 0; font-family: inherit; font-weight: 600; font-size: 11.5px; line-height: 1.3; color: #2b2f8f; cursor: pointer; }
 .tk-items { list-style: none; margin: 6px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
 .tk-items li { display: flex; gap: 7px; padding: 4px 0; border-top: 1px solid #f0f2f6; font-size: 12px; }
 .tk-items li.ok { color: var(--ink-3); } .tk-items li.ok > span { color: #16a34a; font-weight: 800; }
@@ -128,7 +128,7 @@
 .tk-match span small { display: block; color: var(--ink-3); font-size: 11.5px; }
 .tk-match span b { font-size: 10.5px; color: #067647; background: #d3f8df; border-radius: 8px; padding: 0 6px; margin-left: 4px; }
 .tk-stus { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-.tk-stu { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #cfd6e4; background: #f5f7ff; border-radius: 20px; padding: 4px 10px; font: 600 12px/1.2 inherit; font-family: inherit; color: #2b2f8f; cursor: pointer; transition: transform 0.15s, background 0.2s; }
+.tk-stu { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #cfd6e4; background: #f5f7ff; border-radius: 20px; padding: 4px 10px; font-family: inherit; font-weight: 600; font-size: 12px; line-height: 1.2; color: #2b2f8f; cursor: pointer; transition: transform 0.15s, background 0.2s; }
 button.tk-stu:hover { transform: translateY(-2px); background: #e6eaff; }
 .tk-stu small { font-weight: 500; color: var(--ink-3); font-size: 10.5px; }
 .tk-stu.sel { cursor: default; }
@@ -216,3 +216,51 @@ a.btn, a.btn:hover { text-decoration: none; }
 /* the form styles above must not bring back a hidden row */
 #modalCard.tk-wide [hidden] { display: none !important; }
 #ldOver { z-index: 120; }
+
+/* compact cards, close to the Lighthouse task board */
+.tk-board { gap: 10px; grid-template-columns: repeat(4, minmax(215px, 1fr)); }
+.tk-lane { border-radius: 12px; }
+.tk-lane header { padding: 8px 12px; }
+.tk-lane header h3 { font-size: 13px; }
+.tk-lane header span { min-width: 24px; height: 24px; font-size: 12px; border-radius: 12px; }
+.tk-cards { gap: 7px; padding: 7px; max-height: 72vh; min-height: 70px; }
+.tk-empty { margin: 14px 0; font-size: 12px; }
+.tk-card { padding: 7px 9px; border-radius: 9px; }
+.tk-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09); }
+.tk-card h4 { margin: 4px 0 2px; font-size: 12.5px; line-height: 1.3; }
+.tk-card .tk-top { gap: 6px; }
+.tk-card .tk-pill { font-size: 10px; padding: 1px 7px; }
+.tk-card .tk-date, .tk-card .tk-due, .tk-card .tk-small { font-size: 10.5px; }
+.tk-card .tk-details { font-size: 11.5px; line-height: 1.35; margin: 0 0 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tk-card .tk-ico { width: 21px; height: 21px; font-size: 11px; padding: 0; flex: none; }
+.tk-card .tk-who { gap: 6px; margin-top: 4px; }
+.tk-card .tk-who .tk-av { width: 22px; height: 22px; font-size: 9px; }
+.tk-card:hover .tk-who .tk-av { transform: scale(1.1); }
+.tk-card .tk-who > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; min-width: 0; }
+.tk-card .tk-who b { font-size: 11.5px; }
+.tk-card .tk-who small { font-size: 10px; }
+.tk-card .tk-meta { margin-top: 4px; }
+.tk-card .tk-stus { margin-top: 4px; gap: 4px; }
+.tk-card .tk-stu { padding: 2px 7px; font-size: 10.5px; }
+.tk-card .tk-stu small { font-size: 9.5px; }
+.tk-card .tk-auto { margin-top: 4px; }
+.tk-card .tk-bar { height: 4px; }
+.tk-card .tk-link { font-size: 10.5px; padding-top: 2px; }
+.tk-card .tk-items { max-height: 140px; }
+.tk-card .tk-items li { padding: 3px 0; font-size: 11px; }
+.tk-card .tk-result { margin-top: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tk-card .tk-result b, .tk-card .tk-result small { font-size: 10px; }
+.tk-card .tk-last { margin-top: 4px; padding: 3px 7px; font-size: 11px; }
+.tk-card .tk-last small { font-size: 9.5px; }
+.tk-card .tk-actions { margin-top: 6px; gap: 4px; flex-wrap: nowrap; }
+.tk-card .tk-btn { padding: 3px 7px; font-size: 10.5px; border-radius: 6px; white-space: nowrap; }
+.tk-card .tk-btn em { padding: 0 5px; }
+.tk-quick { padding: 10px 12px; margin-bottom: 12px; }
+.tk-quick label { font-size: 12.5px; margin-bottom: 6px; }
+.tk-quick textarea { padding: 7px 10px; font-size: 13px; }
+.tk-head { margin-bottom: 10px; gap: 12px; }
+.tk-gauge { width: 54px; height: 54px; }
+.tk-gauge b { font-size: 14px; }
+.tk-person .tk-av { width: 34px; height: 34px; }
+.tk-person small { font-size: 10.5px; }
+@media (max-width: 760px) { .tk-board { grid-template-columns: repeat(4, 76vw); } }
