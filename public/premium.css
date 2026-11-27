@@ -457,20 +457,31 @@ th.sortable:hover { color: var(--ink, #1d2b2c); }
 /* loading ring */
 .ld-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 56px 16px; text-align: center; animation: ldIn 0.2s 0.15s both; }
 @keyframes ldIn { from { opacity: 0; } to { opacity: 1; } }
-.ld-ring { position: relative; width: 128px; height: 128px; }
-.ld-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ld-ring circle { fill: none; stroke-width: 7; }
-.ld-track { stroke: rgba(15, 23, 42, 0.09); }
-.ld-bar { stroke: #e8092f; stroke-linecap: round; transition: stroke-dashoffset 0.12s linear; }
-.ld-ring b { position: absolute; inset: 0; display: grid; grid-auto-flow: column; place-content: center; align-items: baseline; font-size: 31px; font-weight: 800; color: var(--ink, #14202b); font-variant-numeric: tabular-nums; }
-.ld-ring b i { font-style: normal; font-size: 15px; color: var(--ink-3, #7a8799); margin-left: 1px; }
 .ld-msg { margin: 0; font-size: 14px; color: var(--ink-2, #3c4a57); }
 .ld-wrap.sm { padding: 18px; gap: 10px; }
-.ld-wrap.sm .ld-ring { width: 72px; height: 72px; }
-.ld-wrap.sm .ld-ring b { font-size: 17px; } .ld-wrap.sm .ld-ring b i { font-size: 10px; }
 .ld-wrap.sm .ld-msg { font-size: 12px; }
 #ldOver { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(246, 244, 238, 0.86); }
 
 /* parent mail id */
 .par-mail { font-size: 12px; color: var(--ink-2); text-decoration: none; word-break: break-all; }
 .par-mail:hover { text-decoration: underline; color: #2b2f8f; }
+
+/* the lighthouse loader */
+.ld-wrap:not(.sm) { min-height: 62vh; gap: 14px; }
+.ld-lh { position: relative; width: 190px; height: 190px; flex: none; }
+.ld-spin { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 12%, #f5c76a 45%, #1d4f91 78%, transparent 94%); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px)); mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px)); animation: ldTurn 1.5s linear infinite; }
+.ld-sea { position: absolute; inset: 12px; border-radius: 50%; overflow: hidden; background: linear-gradient(180deg, #4d5596 0%, #1b2a66 42%, #12224f 100%); box-shadow: 0 14px 34px -12px rgba(18, 34, 79, 0.65); }
+.ld-sea svg { position: absolute; left: 50%; bottom: 0; height: 90%; transform: translateX(-50%); filter: drop-shadow(0 0 8px rgba(255, 214, 120, 0.35)); }
+/* two cones of light turning about the lamp, which sits 31% down the porthole */
+.ld-beam { position: absolute; left: 50%; top: 31%; width: 240%; height: 240%; margin: -120% 0 0 -120%; border-radius: 50%; background: conic-gradient(from 76deg, transparent 0, rgba(255, 233, 170, 0.75) 14deg, transparent 28deg 180deg, rgba(255, 233, 170, 0.75) 194deg, transparent 208deg); -webkit-mask: radial-gradient(closest-side, #000 8%, transparent 78%); mask: radial-gradient(closest-side, #000 8%, transparent 78%); animation: ldTurn 2.6s linear infinite; }
+.ld-lamp { animation: ldGlow 1.3s ease-in-out infinite; }
+.ld-wave { position: absolute; left: 0; right: -40px; bottom: 0; height: 13%; background: radial-gradient(14px 10px at 20px 100%, rgba(60, 120, 200, 0.75) 98%, transparent) 0 100% / 40px 100% repeat-x; animation: ldWave 1.6s linear infinite; }
+.ld-pct { font-size: 15px; font-weight: 800; color: var(--ink-3, #7a8799); font-variant-numeric: tabular-nums; line-height: 1; }
+.ld-wrap:not(.sm) .ld-msg { font-size: 15px; font-weight: 600; max-width: 340px; min-height: 2.8em; }
+.ld-wrap.sm .ld-lh { width: 92px; height: 92px; }
+.ld-wrap.sm .ld-sea { inset: 7px; }
+.ld-wrap.sm .ld-pct { font-size: 11px; }
+@keyframes ldTurn { to { transform: rotate(360deg); } }
+@keyframes ldGlow { 50% { opacity: 0.55; } }
+@keyframes ldWave { to { transform: translateX(-40px); } }
+@media (prefers-reduced-motion: reduce) { .ld-spin, .ld-beam, .ld-lamp, .ld-wave { animation: none !important; } }
