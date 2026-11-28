@@ -264,3 +264,9 @@ a.btn, a.btn:hover { text-decoration: none; }
 .tk-person .tk-av { width: 34px; height: 34px; }
 .tk-person small { font-size: 10.5px; }
 @media (max-width: 760px) { .tk-board { grid-template-columns: repeat(4, 76vw); } }
+
+/* a button on each approval or missing chapter that opens it in Lighthouse */
+.tk-items li > div { flex: 1; min-width: 0; }
+.tk-go { align-self: center; flex: none; font-size: 10.5px; font-weight: 700; line-height: 1; padding: 5px 8px; border-radius: 6px; background: #eef0ff; color: #33379e; text-decoration: none; white-space: nowrap; }
+.tk-go:hover { background: #33379e; color: #fff; text-decoration: none; }
+.tk-items li.ok .tk-go { opacity: 0.45; }

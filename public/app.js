@@ -946,15 +946,19 @@ async function tracker() {
     const timePassed = past === 0 && t.lane === 'late';
     return `<span class="tk-due">Due ${tkDay(t.due)}${t.dueTime ? ', ' + tkClock(t.dueTime) : ''}${past > 0 ? ` · <b class="tk-red">${past} day${past === 1 ? '' : 's'} past</b>` : timePassed ? ' · <b class="tk-red">time passed</b>' : ''}</span>`;
   };
-  // predefined task: how many of its items are cleared, with the list behind a click
+  // predefined task: how many of its items are cleared, with the list behind a click. Approvals and missing chapters
+  // show their list straight away while the task is open, each item with a button to its Lighthouse planning page.
+  const LINKED = { approvals: 'Approve ↗', chapters: 'Plan ↗' };
+  const listOpen = (t) => (Boolean(LINKED[t.auto.key]) && t.lane !== 'done') !== tkState.open.has('list:' + t.id);
   const autoBlock = (t) => {
     const left = new Set(t.status === 'done' && t.doneBy === 'Automatic' ? [] : t.auto.left || t.auto.items.map((x) => x.id));
     const total = t.auto.items.length;
     const cleared = total - t.auto.items.filter((x) => left.has(x.id)).length;
-    const key = 'list:' + t.id;
+    const open = listOpen(t);
+    const go = LINKED[t.auto.key];
     return `<div class="tk-auto"><div class="tk-bar"><i style="width:${Math.round((100 * cleared) / total)}%"></i></div>
-      <button class="tk-link" data-tk="items">${cleared} of ${total} cleared · ${tkState.open.has(key) ? 'hide' : 'show'} list</button>
-      <ul class="tk-items" ${tkState.open.has(key) ? '' : 'hidden'}>${t.auto.items.map((x) => `<li class="${left.has(x.id) ? '' : 'ok'}"><span>${left.has(x.id) ? '○' : '✓'}</span><div>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div></li>`).join('')}</ul></div>`;
+      <button class="tk-link" data-tk="items">${cleared} of ${total} cleared · ${open ? 'hide' : 'show'} list</button>
+      <ul class="tk-items" ${open ? '' : 'hidden'}>${t.auto.items.map((x) => `<li class="${left.has(x.id) ? '' : 'ok'}"><span>${left.has(x.id) ? '○' : '✓'}</span><div>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div>${go && x.link ? `<a class="tk-go" href="${esc(x.link)}" target="_blank" rel="noopener" title="Open this in Lighthouse">${go}</a>` : ''}</li>`).join('')}</ul></div>`;
   };
   const card = (t, i) => {
     const fresh = !tkState.seen.has(t.id);
@@ -1386,7 +1390,7 @@ async function tracker() {
         const key = 'list:' + t.id;
         tkState.open[tkState.open.has(key) ? 'delete' : 'add'](key);
         const list = el.querySelector('.tk-items');
-        list.hidden = !tkState.open.has(key);
+        list.hidden = !listOpen(t);
         btn.textContent = btn.textContent.replace(list.hidden ? 'hide' : 'show', list.hidden ? 'show' : 'hide');
       } else if (what === 'notes') popup(t);
       else if (what === 'done') finish(t);
