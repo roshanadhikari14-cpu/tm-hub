@@ -1546,7 +1546,7 @@ async function students() {
         const ptm = r.ptms.length
           ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + p.minutes + 'm' : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
           : '<span style="color:var(--ink-3)">None</span>';
-        const reps = r.reports.slice(0, 3).map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="${esc(r.name)} · PTM report ${esc(x.month || '')} (saved ${esc(new Date(x.at).toLocaleString('en-GB'))})">📄 ${esc(new Date(x.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }))} · ${esc(new Date(x.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).toUpperCase())}</a>`).join(' ') + (r.reports.length > 3 ? ` <small>+${r.reports.length - 3}</small>` : '');
+        const reps = repChips(r.name, r.reports);
         return `<tr><td class="num">${i + 1}</td>
           <td><b>${lhLink(`${CRM}/students/view/${r.id}`, esc(r.name))}</b>${r.lapsed ? ' <span class="tag red">Lapsed</span>' : ''}${r.oneOnOne ? ' <span class="tag">1:1</span>' : ''}<br><small style="color:var(--ink-3)">Class ${esc(r.grade ?? '—')} · ${esc(r.school || '—')}</small></td>
           ${owner ? `<td>${esc(r.tm.split(' ')[0])}</td>` : ''}
@@ -2956,14 +2956,16 @@ function remarkHtml(m) {
   const btn = can ? `<button class="rm-btn" type="button">${r ? '✎ Edit' : '＋ Add remark'}</button>` : r ? '' : '<small style="color:var(--ink-3)">—</small>';
   return txt + btn;
 }
-// The student's PTM report: open the latest saved one, or make one (also for PTMs still to come)
+// The student's saved PTM reports, newest first: open one instead of making it again
+const repWhen = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) + ' · ' + new Date(at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).toUpperCase();
+const repChips = (name, list) =>
+  (list || [])
+    .slice(0, 3)
+    .map((x) => `<a class="chip" href="/api/reports/file/${esc(x.id)}" target="_blank" rel="noopener" title="${esc(name)} · PTM report ${esc(x.month || '')} (saved ${esc(new Date(x.at).toLocaleString('en-GB'))})">📄 ${esc(repWhen(x.at))}</a>`)
+    .join(' ') + ((list || []).length > 3 ? ` <small>+${list.length - 3}</small>` : '');
 const reportCell = (m) => {
   if (!m.studentId || ptmState(m) === 'cancelled') return '<td><small style="color:var(--ink-3)">—</small></td>';
-  const r = (m.reports || [])[0];
-  const when = (x) => new Date(x.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) + ' · ' + new Date(x.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).toUpperCase();
-  return r
-    ? `<td class="rp-cell" style="white-space:nowrap"><a class="chip" href="/api/reports/file/${esc(r.id)}" target="_blank" rel="noopener" title="Open the saved PTM report (${esc(r.month || '')})">📄 ${esc(when(r))}</a><br><a href="#" data-report="${esc(m.studentId)}" class="rp-link" style="font-size:12px">↻ Make a new one</a></td>`
-    : `<td class="rp-cell" style="white-space:nowrap"><a href="#" data-report="${esc(m.studentId)}" class="btn btn-ghost" style="padding:5px 10px;font-size:12px">📄 Create report</a></td>`;
+  return `<td class="rp-cell"><a href="#" data-report="${esc(m.studentId)}" class="btn btn-ghost" style="padding:5px 10px;font-size:12px;white-space:nowrap">📄 Create report</a><div class="rp-saved">${repChips(m.student, m.reports)}</div></td>`;
 };
 const remarkCell = (m) => `<td class="rm-cell" data-rm="${esc(m.id)}">${remarkHtml(m)}</td>`;
 // Under the status: mark a PTM held outside Lighthouse as done, or take such an entry back
@@ -3137,6 +3139,8 @@ async function ptm() {
     <div class="card rise" id="ptmHist" style="margin-top:12px"></div>
     <p class="note" style="margin-top:10px">“Not marked” means the meeting time has passed but it was not marked done or no-show in Lighthouse. Parent time is how long the parent was in the meeting. Dates can go back up to 6 months.</p>`;
   ptmAll = all.slice();
+  rpAll = false;
+  rpSaved();
   $('#ptmStatus').value = ptmView.status || '';
   paintHistory();
   view.querySelectorAll('#ptmTabs button').forEach((b) => (b.onclick = () => ((ptmView.tm = b.dataset.tm), paintHistory())));
@@ -3453,8 +3457,50 @@ function reportCard() {
   const st = S.status || {};
   return `<div class="card rise report-card"><div class="rc-l"><h3>📄 Create PTM report</h3><div class="sub">Type a student name or ID and get a 3-page plan for the one-to-one PTM, built from the student’s Lighthouse reports (with photos of their own work). It downloads as a PDF. Free, takes about 30 seconds.</div></div>
     <div class="rc-r"><input id="rpId" list="rpList" autocomplete="off" placeholder="Student name or ID, e.g. 33682"><datalist id="rpList"></datalist><select id="rpMonth">${m.list.map((x) => `<option ${x === m.pick ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><select id="rpWin" title="How far back to read"><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option><option value="all">Since joining</option></select>
-      <button class="btn btn-primary" id="rpGo">Create report</button></div></div>`;
+      <button class="btn btn-primary" id="rpGo">Create report</button></div><div class="rp-list" id="rpSaved" hidden></div></div>`;
 }
+// Saved reports under the box. Empty box: the latest ones. Typing a name or ID: that student's.
+let rpRows = [];
+let rpAll = false;
+function rpPaint() {
+  const box = $('#rpSaved');
+  if (!box) return;
+  const raw = (($('#rpId') && $('#rpId').value) || '').trim().toLowerCase();
+  const tail = raw.match(/·\s*(\d+)$/);
+  const latest = (r) => Math.max(...r.reports.map((x) => new Date(x.at).getTime()));
+  const hits = rpRows
+    .filter((r) => r.reports.length && (!raw || (tail ? String(r.id) === tail[1] : `${r.name} ${r.id}`.toLowerCase().includes(raw))))
+    .sort((a, b) => latest(b) - latest(a));
+  box.hidden = !hits.length && !raw;
+  if (box.hidden) return;
+  const shown = rpAll ? hits : hits.slice(0, 5);
+  box.innerHTML = `<div class="rp-list-head">Saved reports · open one, no need to make it again</div>${
+    shown.map((r) => `<div class="rp-item"><span class="rp-name"><b>${esc(r.name)}</b> <small>${esc(r.school || '')}</small></span><span class="rp-saved">${repChips(r.name, r.reports)}</span></div>`).join('') || '<div class="rp-item"><small>No saved report for this student yet.</small></div>'
+  }${hits.length > shown.length ? `<button type="button" class="rm-btn" id="rpMore">Show all ${hits.length}</button>` : ''}`;
+}
+async function rpSaved() {
+  if (S.status && S.status.role === 'viewer') return;
+  try {
+    rpRows = (await cachedApi('/api/students-all', 600000)).rows || [];
+  } catch {
+    return;
+  }
+  rpPaint();
+}
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'rpId') rpPaint();
+});
+document.addEventListener('click', (e) => {
+  if (e.target.id !== 'rpMore') return;
+  rpAll = true;
+  rpPaint();
+});
+// a new report shows on the PTM tab straight away
+document.addEventListener('ptm-report-saved', () => {
+  apiCache.delete('/api/ptm');
+  apiCache.delete('/api/students-all');
+  if (location.hash.startsWith('#/ptm')) setTimeout(() => route(true), 400);
+});
 // Student names for the report box (the person's own students; the owner sees all)
 async function rpLoad() {
   if (window.__rpStudents) return;
@@ -3551,7 +3597,7 @@ async function createPtmReport(studentId, month, win) {
     const viewUrl = out.saved ? out.saved.url : url;
     q('#rpOut').innerHTML = `<div class="rp-done">✅ Report ready: <b>${esc(out.name)}</b><br><button class="btn btn-primary" data-view="${esc(viewUrl)}" data-title="${esc(out.name)}">👁 View report</button> <a class="btn btn-ghost" href="${url}" download="${esc(out.name)}">⬇ Download PDF</a>${out.link ? ` <a class="btn btn-ghost" href="${esc(out.link)}" target="_blank" rel="noopener">Open in Drive</a>` : ''}${out.saved ? '<div class="note" style="margin-top:8px">Saved to this student’s history on the All students tab.</div>' : ''}</div>`;
     document.dispatchEvent(new CustomEvent('ptm-report-saved', { detail: { studentId } }));
-    toast(closed ? 'PTM report ready. Open it from the All students tab.' : 'PTM report ready', 'ok');
+    toast(closed ? 'PTM report ready. It is saved under the report box and on All students.' : 'PTM report ready', 'ok');
     if (!closed) viewPdf(viewUrl, out.name, { back: true });
   } catch (e) {
     clearInterval(creep);
