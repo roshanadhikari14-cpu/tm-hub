@@ -217,14 +217,22 @@ const gradeClass = (score) => (score >= 85 ? 'star' : score >= 70 ? '' : score >
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'never');
 const daysAgo = (iso) => (iso ? istDaysAgo(iso) : null);
 
+// Minutes as people read them: "44m" up to 59, then "1 hr 14 mins" (same as lib/duration.js)
+function dur(minutes, unit = ' min') {
+  const n = Math.round(Number(minutes) || 0);
+  if (n < 60) return n + unit;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return h + (h === 1 ? ' hr' : ' hrs') + (m ? ' ' + m + (m === 1 ? ' min' : ' mins') : '');
+}
 // How one task cell reads for the chosen report time.
 function cellText(t, s, slot) {
   if (slot === 'morning') {
-    if (t.kind === 'talk') return { main: `${s.yesterday}m`, sub: 'yesterday' };
+    if (t.kind === 'talk') return { main: dur(s.yesterday, 'm'), sub: 'yesterday' };
     if (t.kind === 'booking') return { main: s.morning, sub: s.flagged ? `${s.flagged} waiting 5+ days` : 'to book' };
     return { main: s.pending, sub: s.flagged ? `${s.flagged} flagged` : 'pending' };
   }
-  if (t.kind === 'talk') return { main: `${s.minutes}m`, sub: 'today' };
+  if (t.kind === 'talk') return { main: dur(s.minutes, 'm'), sub: 'today' };
   return { main: `${s.done}/${s.morning}`, sub: t.kind === 'booking' ? 'booked' : `${s.pending} open` };
 }
 
@@ -522,7 +530,7 @@ async function renewals() {
     if (!p || p.state === 'cancelled') return '<span class="ptag">No PTM in 20 days</span>';
     const [label, cls] = RN_PTM[p.state] || ['PTM', ''];
     const d = p.date ? new Date(p.date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
-    const meta = [d, p.state === 'completed' && p.minutes ? p.minutes + ' min' : '', p.count > 1 ? p.count + ' meetings' : ''].filter(Boolean).join(' · ');
+    const meta = [d, p.state === 'completed' && p.minutes ? dur(p.minutes) : '', p.count > 1 ? p.count + ' meetings' : ''].filter(Boolean).join(' · ');
     return `<span class="ptag ${cls}">${esc(label)}</span><br><small style="color:var(--ink-3)">${esc(meta)}</small><div class="rm-cell rn-ptmrm" data-rm="${esc(p.id)}">${remarkHtml(p)}</div>`;
   };
   const paint = () => {
@@ -1544,7 +1552,7 @@ async function students() {
     $('#stBody').innerHTML = shown
       .map((r, i) => {
         const ptm = r.ptms.length
-          ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + p.minutes + 'm' : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
+          ? r.ptms.slice(0, 3).map((p) => `<span class="chip ok" title="${esc(p.tm)}">${esc(shortDate(p.date))}${p.minutes ? ' · ' + dur(p.minutes, 'm') : ''}</span>`).join(' ') + (r.ptms.length > 3 ? ` <small>+${r.ptms.length - 3} more</small>` : '')
           : '<span style="color:var(--ink-3)">None</span>';
         const reps = repChips(r.name, r.reports);
         return `<tr><td class="num">${i + 1}</td>
@@ -1639,7 +1647,7 @@ function tmCard(r, i, top = false) {
       <div class="name">${esc(r.name)}</div>
       <div class="grade">${esc(r.perf.grade)} · ${r.perf.students} students</div>
       <div class="mini-stats">
-        <div class="go" data-go="#/tasks/talk" title="Talk time done today (calls + PTMs). Click for the task board"><b>${t.talk.minutes || 0}m</b><span>talk time done</span></div>
+        <div class="go" data-go="#/tasks/talk" title="Talk time done today (calls + PTMs). Click for the task board"><b>${dur(t.talk.minutes, 'm')}</b><span>talk time done</span></div>
         <div class="go" data-go="#/ptm" title="PTMs booked for today. Click for the PTM tab"><b data-ptmcard="${esc(r.name)}">…</b><span data-ptmsub>PTMs today</span></div>
         <div class="go" data-go="#/tasks/ic2" title="Open IC2 bookings"><b>${t.ic2.done}/${t.ic2.morning}</b><span>IC2 booked</span></div>
         <div class="go" data-go="#/tasks/chapters" title="Open chapter planning"><b>${t.chapters ? t.chapters.pending : 0}</b><span>chapters missing</span></div>
@@ -1700,7 +1708,7 @@ async function dashboard() {
       let val, meta, p;
       if (t.kind === 'talk') {
         const v = b.slot === 'morning' ? sum('yesterday') : sum('minutes');
-        val = `<span data-count="${v}">0</span><small> min</small>`;
+        val = v < 60 ? `<span data-count="${v}">0</span><small> min</small>` : `<span>${dur(v)}</span>`;
         meta = b.slot === 'morning' ? 'team talk time yesterday' : 'team talk time today';
         p = (100 * v) / (sum('target') || 1);
       } else if (t.kind === 'booking') {
@@ -1768,7 +1776,7 @@ async function team() {
       <button class="ts rise" style="--i:1" data-f="push"><div class="ts-n" data-count="${pushN}">0</div><div><b>Need a push</b><small>click to filter</small></div></button>
       <button class="ts rise" style="--i:2" data-f="concerns"><div class="ts-n" data-count="${concN}">0</div><div><b>With concerns</b><small>critical items today</small></div></button>
       <div class="ts rise" style="--i:3"><div class="ts-n" data-count="${openN}">0</div><div><b>Open items</b><small>across the team</small></div></div>
-      <div class="ts rise" style="--i:4"><div class="ts-n" data-count="${talkN}">0</div><div><b>Talk minutes</b><small>done today</small></div></div>
+      <div class="ts rise" style="--i:4"><div class="ts-n">${dur(talkN, 'm')}</div><div><b>Talk time</b><small>done today</small></div></div>
     </div>
     <div class="toolbar team-tools">
       <div class="search"><input id="tmQ" placeholder="Search a TM…" autocomplete="off" value="${esc(teamState.q)}"></div>
@@ -1945,7 +1953,7 @@ async function tm([name, focus]) {
       const c = cellText(t, s, j.slot);
       const body =
         t.kind === 'talk'
-          ? `<div class="quality" style="margin-bottom:6px"><div><b>${s.minutes}m</b><span>talk time today</span></div><div><b>${s.yesterday}m</b><span>last working day</span></div><div><b>${s.connected}</b><span>parents connected</span></div><div><b>${s.calls}/${s.dialled}</b><span>connected / dialled</span></div></div>`
+          ? `<div class="quality" style="margin-bottom:6px"><div><b>${dur(s.minutes, 'm')}</b><span>talk time today</span></div><div><b>${dur(s.yesterday, 'm')}</b><span>last working day</span></div><div><b>${s.connected}</b><span>parents connected</span></div><div><b>${s.calls}/${s.dialled}</b><span>connected / dialled</span></div></div>`
           : itemsTable(t, s.items);
       return `<div class="acc ${s.status === 'critical' ? 'crit' : ''} ${focus === t.key || (!focus && s.status === 'critical') ? 'open' : ''}" id="acc-${t.key}">
         <div class="acc-head"><span class="ic">${t.icon}</span><span class="t">${esc(t.label)}<small>${esc(c.sub)}</small></span><span class="fig">${esc(c.main)}</span>${pill(s.status)}<span class="chev">›</span></div>
@@ -2042,8 +2050,8 @@ function talkLegend(b) {
   const target = (s0 && s0.target) || 90;
   const exp = s0 && s0.expected != null ? s0.expected : null;
   const dot = (c, txt) => `<span class="pill ${c}" style="margin-right:6px">${txt}</span>`;
-  return `<div style="margin-top:8px;line-height:1.9">Target: <b>${target} min of talk time (calls plus PTMs) by 8 PM</b>, spread evenly over the call day from 11 AM${exp != null ? `, so about <b>${exp} min</b> is expected by now` : ''}.<br>
-    ${dot('clear', 'Target met')} ${target} min or more.
+  return `<div style="margin-top:8px;line-height:1.9">Target: <b>${dur(target)} of talk time (calls plus PTMs) by 8 PM</b>, spread evenly over the call day from 11 AM${exp != null ? `, so about <b>${dur(exp)}</b> is expected by now` : ''}.<br>
+    ${dot('clear', 'Target met')} ${dur(target)} or more.
     ${dot('ok', 'On track')} At or above the pace expected for this time of day.
     ${dot('watch', 'Concerning')} Behind pace, but within 30% of it.
     ${dot('critical', 'Needs attention')} More than 30% behind pace.</div>`;
@@ -2073,10 +2081,10 @@ async function tasks([key]) {
       const p = t.kind === 'talk' ? (s.target ? Math.round((100 * s.done) / s.target) : 100) : s.morning ? Math.round((100 * s.done) / s.morning) : 100;
       const nums =
         t.kind === 'talk'
-          ? `<td class="num"><b>${s.minutes}m</b></td><td class="num">${s.callMinutes ?? 0}m</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${s.ptmMinutes ?? 0}m</small>` : '0'}</td><td class="num">${s.yesterday}m${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${s.yesterdayPtmMinutes}m</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
+          ? `<td class="num"><b>${dur(s.minutes, 'm')}</b></td><td class="num">${dur(s.callMinutes, 'm')}</td><td class="num">${s.ptm ? `<b>${s.ptm}</b> <small style="color:var(--ink-3)">· ${dur(s.ptmMinutes, 'm')}</small>` : '0'}</td><td class="num">${dur(s.yesterday, 'm')}${s.yesterdayPtm ? `<br><small style="color:var(--ink-3)">${s.yesterdayPtm} PTM · ${dur(s.yesterdayPtmMinutes, 'm')}</small>` : ''}</td><td class="num">${s.connected}</td><td class="num">${s.calls}/${s.dialled}</td>`
           : `<td class="num">${s.morning}</td><td class="num"><b>${s.done}</b></td><td class="num">${s.pending}${s.fresh ? ` <small>(+${s.fresh} new)</small>` : ''}${s.morning ? ` <span class="open-pct">| ${((100 * Math.max(0, s.morning - s.done)) / s.morning).toFixed(2)}%</span>` : ''}</td><td class="num">${s.flagged ? `<span class="tag red">${s.flagged}</span>` : '0'}</td>`;
       return `<tr class="${st === 'critical' ? 'flag' : ''}" data-go="#/tm/${encodeURIComponent(r.name)}/${t.key}" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:10px"><img src="${photo(r)}" style="width:34px;height:34px;border-radius:10px;object-fit:cover" alt=""><b>${esc(r.name)}</b></div></td>${nums}
-        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${st === 'critical' ? 'red' : st === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${t.kind === 'talk' ? `<span title="${s.expected != null ? esc('Expected by now: about ' + s.expected + ' min of ' + s.target + '. Done: ' + s.done + ' min.') : ''}">${pill(st, TALK_LABEL[st])}</span>` : pill(st)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc((t.kind === 'talk' && s.liveHint) || s.hints[0] || '')}</td></tr>`;
+        <td style="min-width:150px"><div style="display:flex;align-items:center;gap:10px"><div class="prog ${st === 'critical' ? 'red' : st === 'watch' ? 'amber' : ''}" style="margin:0;flex:1"><i data-w="${p}"></i></div><b class="num" style="min-width:${t.kind === 'talk' ? 38 : 112}px;text-align:right;white-space:nowrap">${t.kind === 'talk' ? p + '%' : rnPct(s.done, s.morning)}</b></div></td>${t.key === 'nc15' ? `<td class="num" style="white-space:nowrap">${s.share ? rnPct2(s.share.count, s.share.den) : '—'}</td>` : ''}<td>${t.kind === 'talk' ? `<span title="${s.expected != null ? esc('Expected by now: about ' + dur(s.expected) + ' of ' + dur(s.target) + '. Done: ' + dur(s.done) + '.') : ''}">${pill(st, TALK_LABEL[st])}</span>` : pill(st)}</td><td style="min-width:260px;max-width:340px;font-size:12.5px;color:var(--ink-2)">${esc((t.kind === 'talk' && s.liveHint) || s.hints[0] || '')}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
   const all = b.rows.flatMap((r) => r.tasks[t.key].items.map((it) => ({ ...it, tm: r.first }))).sort((a, c) => c.flag - a.flag || a.sort - c.sort);
@@ -2944,7 +2952,7 @@ const ptmTag = (m) => {
 };
 const ptmTime = (m) => new Date(m.start).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
 const ptmDay = (m) => new Date(m.start).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' });
-const ptmParent = (m) => (m.parentMinutes == null ? (m.parentJoined ? 'Joined' : '—') : m.parentMinutes ? `${m.parentMinutes} min` : 'Did not join');
+const ptmParent = (m) => (m.parentMinutes == null ? (m.parentJoined ? 'Joined' : '—') : m.parentMinutes ? dur(m.parentMinutes) : 'Did not join');
 const ptmStudent = (m) => lhLink(m.studentId ? `${CRM}/students/view/${m.studentId}` : '', esc(m.student));
 const ptmView = { tm: '', status: '', preset: '', from: '', to: '' };
 // Remarks the TM writes after the PTM (saved on the hub, shown to the owner and the TM)
@@ -3051,7 +3059,7 @@ async function ptm() {
       (r) => `<tr class="ptm-tm" data-ptmtm="${esc(r.n)}" title="Show ${esc(r.n)}’s past PTMs below"><td><b>${esc(r.n)}</b></td>
         <td class="num">${frac(r.t)}</td><td class="num">${frac(r.w)}</td><td class="num">${r.mo.booked}</td><td class="num"><b>${r.mo.done}</b></td>
         <td class="num">${r.mo.noshow ? `<span class="ptag red">${r.mo.noshow}</span>` : 0}</td><td class="num">${r.mo.unmarked ? `<span class="ptag amber">${r.mo.unmarked}</span>` : 0}</td>
-        <td class="num">${r.mo.cancelled}</td><td class="num">${r.mo.minutes} min</td></tr>`
+        <td class="num">${r.mo.cancelled}</td><td class="num">${dur(r.mo.minutes)}</td></tr>`
     )
     .join('')}</tbody></table></div>`;
   // ---- PTMs by date: quick picks, From/To dates, TM and status filters ----
@@ -3101,7 +3109,7 @@ async function ptm() {
     $('#ptmSum').innerHTML = `<b>${esc(label)}${ptmView.tm ? ` · ${esc(ptmView.tm)}` : ''}:</b>
       <span class="ptag blue">${st.booked} booked</span><span class="ptag ok">${st.done} done</span><span class="ptag red">${st.noshow} parent no-show</span>
       <span class="ptag amber">${st.unmarked} not marked</span><span class="ptag grey" style="text-decoration:none">${st.cancelled} cancelled</span>
-      <span class="ptag">${byTm.reduce((a, m) => a + (m.parentMinutes || 0), 0)} min parent time</span>`;
+      <span class="ptag">${dur(byTm.reduce((a, m) => a + (m.parentMinutes || 0), 0))} parent time</span>`;
     // Newest first for past dates; soonest first when looking ahead.
     const ordered = from >= j.today ? shown : shown.slice().reverse();
     box.innerHTML = ordered.length ? ptmRows(ordered, from !== to) : `<div class="empty">No PTMs ${ptmView.status ? 'with this status ' : ''}for these dates.</div>`;
