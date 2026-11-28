@@ -1331,7 +1331,7 @@ async function tracker() {
     const att = s.att && s.att.regHeld ? Math.round((100 * s.att.regAttended) / s.att.regHeld) + '% (' + s.att.regAttended + ' of ' + s.att.regHeld + ' classes)' : '—';
     const row = (k, v) => `<div><small>${k}</small><b>${v === 0 || v ? esc(v) : '—'}</b></div>`;
     frame(`<div class="tk-facts">${row('Student ID', d.id)}${row('Class', s.grade)}${row('School', s.school)}${row('Batch', s.batch)}${row('Tutor manager', d.tm)}${row('Attendance this month', att)}${row('Green %', s.greenPct == null ? '' : s.greenPct + '%')}${row('Last parent contact', s.lastContact ? new Date(s.lastContact).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : '')}</div>
-      <h4 class="tk-h">Parents</h4>${(d.parents || []).map((x) => `<p class="tk-line"><b>${esc(x.name)}</b> ${esc(x.relation || '')} ${x.phone ? `<a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>` : ''}${x.email ? ' · ' + mailLink(x.email) : ''}</p>`).join('') || '<p class="tk-small">No parent on record.</p>'}
+      <h4 class="tk-h">Parents</h4>${(d.parents || []).map((x) => `<p class="tk-line"><b>${esc(x.name)}</b> ${esc(x.relation || '')} ${x.phone ? (x.phone.includes('•') ? esc(x.phone) : `<a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>`) : ''}${x.email ? ' · ' + mailLink(x.email) : ''}</p>`).join('') || '<p class="tk-small">No parent on record.</p>'}
       <h4 class="tk-h">Recent PTMs</h4>${(d.ptms || []).slice(0, 4).map((m) => `<p class="tk-line">${esc(m.date)} · ${esc(m.status)} · ${esc(m.host)}</p>`).join('') || '<p class="tk-small">No PTM on record.</p>'}
       ${(d.tasks || []).length ? `<h4 class="tk-h">Open items today</h4>${d.tasks.slice(0, 6).map((x) => `<p class="tk-line">${esc(x.task)}</p>`).join('')}` : ''}
       ${d.error ? `<p class="tk-red tk-small">${esc(d.error)}</p>` : ''}`);
@@ -1849,7 +1849,7 @@ let stuState = { q: '', filter: 'all', sort: 'name', dir: 1 };
 // Parent / guardian name + number, filled in from /api/parents after the students tab opens.
 const parentMap = {};
 const isOwnerUI = () => true; // parent names show for everyone allowed; numbers only arrive from the server for the owner
-const telLink = (p, id) => (p ? (id ? `<a class="tel" href="${esc(CRM)}/students/view/${esc(id)}" target="_blank" rel="noopener" title="Open in Lighthouse to call">${esc(p)} <span class="ext">↗</span></a>` : `<a class="tel" href="tel:${esc(String(p).replace(/[^+0-9]/g, ''))}">${esc(p)}</a>`) : '');
+const telLink = (p, id) => (p ? (id ? `<a class="tel" href="${esc(CRM)}/students/view/${esc(id)}" target="_blank" rel="noopener" title="Open in Lighthouse to call">${esc(p)} <span class="ext">↗</span></a>` : String(p).includes('•') ? esc(p) : `<a class="tel" href="tel:${esc(String(p).replace(/[^+0-9]/g, ''))}">${esc(p)}</a>`) : '');
 const mailLink = (v) => `<a class="par-mail" href="mailto:${encodeURIComponent(v).replace('%40', '@')}" title="Write to ${esc(v)}">✉ ${esc(v)}</a>`;
 function parentCell(id) {
   const g = parentMap[id];
@@ -2295,6 +2295,7 @@ async function settings() {
     <div class="card rise" style="margin-bottom:18px"><div class="toolbar"><div><h3>🔊 Speak on hover</h3><div class="sub">Rest the pointer on a TM’s card, photo or row and the site reads out their name and today’s numbers. If a TM has recorded a greeting in their own voice, that plays first.</div></div>
       <label class="toggle"><input type="checkbox" id="voiceOn" ${voiceOn() ? 'checked' : ''}><span class="sw"></span>Speak on hover</label></div>
       <div class="voice-list" id="voiceList"></div><p class="note" style="margin-top:10px">Each TM records their own greeting: they sign in, open their profile and press “Record my greeting”. Nobody else can record it for them. This switch is saved for this browser only. Sound starts after your first click on the page (browsers block it before that).</p></div>
+    ${st.owner ? `<div class="card rise" id="maskCard" style="margin-bottom:18px"><h3>📱 Parent phone numbers</h3><div class="sub" style="margin-bottom:12px">When on, only the first and last 3 digits are shown (for example 900••••345), on every page and in the CSV download. Handy while sharing your screen.</div><label class="toggle"><input type="checkbox" id="maskOn" ${st.config && st.config.maskPhones ? 'checked' : ''}><span class="sw"></span>${st.config && st.config.maskPhones ? 'On: numbers are hidden' : 'Off: full numbers are shown'}</label></div>` : ''}
     ${st.owner ? `<div class="card rise" id="lhCard" style="margin-bottom:18px"><h3>🔐 Lighthouse login</h3><div class="sub" style="margin-bottom:12px">${st.lighthouse ? (st.refreshError ? `<span style="color:var(--red)">${esc(st.refreshError)}</span>` : `Connected · last data ${esc(fmtTime(st.dataAt))}`) : '<b style="color:var(--red)">Not connected</b>'}</div>
       <div class="form"><label>Authorization value<textarea id="lhAuth" rows="3" autocomplete="off" placeholder="Bearer eyJ…"></textarea></label>
         <p class="note">In Chrome open lighthouse.uprio.com → press F12 → <b>Network</b> tab → reload the page → click any request to backend.uprio.com → under <b>Request Headers</b> copy the whole <b>authorization</b> value and paste it here. Paste a fresh one whenever Refresh says the login was refused.</p>
@@ -2387,6 +2388,20 @@ async function settings() {
       toast(err.message, 'err');
     }
   };
+  if ($('#maskOn'))
+    $('#maskOn').onchange = async (e) => {
+      try {
+        await api('/api/config', { body: { maskPhones: e.target.checked } });
+        // forget numbers already loaded, so every page asks again
+        for (const k of Object.keys(parentMap)) delete parentMap[k];
+        apiCache.clear();
+        toast(e.target.checked ? 'Parent numbers are now hidden' : 'Full parent numbers are shown again', 'ok');
+        settings();
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        toast(err.message, 'err');
+      }
+    };
   $('#saveEm').onclick = async () => {
     try {
       await api('/api/email-settings', { body: { fromName: $('#emName').value } });

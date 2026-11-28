@@ -66,6 +66,7 @@ const mins = (hhmm) => {
 const DEFAULTS = {
   enabled: true,
   talkTargetMin: 90,
+  maskPhones: false,
   slots: { morning: '11:00', progress: '17:00', closure: '20:00' },
   sendIndividual: true,
   sendTeam: true,
@@ -357,6 +358,8 @@ app.use('/api/parents', (req, res, next) => {
 });
 // Parent names for everyone allowed; numbers and e-mails for the owner only.
 const noNumbers = (list) => (list || []).map(({ name, relation, primary }) => ({ name, relation, primary, phone: '' }));
+// What a person gets of a student's parents: the owner the numbers (shortened when hiding is on), others none
+const parentsFor = (role, list) => (role !== 'owner' ? noNumbers(list) : loadConfig().maskPhones ? Parents.maskList(list) : list);
 app.use(['/api/students.csv'], (req, res, next) => {
   if (req.role === 'owner') return next();
   if (req.role === 'tm') {
@@ -435,7 +438,7 @@ const status = (req) => {
     refreshError: lastRefreshError,
     refreshing: Boolean(refreshing),
     running,
-    config: { enabled: c.enabled, talkTargetMin: c.talkTargetMin, slots: c.slots, sendIndividual: c.sendIndividual, sendTeam: c.sendTeam, last: c.last },
+    config: { enabled: c.enabled, talkTargetMin: c.talkTargetMin, slots: c.slots, sendIndividual: c.sendIndividual, sendTeam: c.sendTeam, last: c.last, maskPhones: Boolean(c.maskPhones) },
     log: (c.log || []).slice(0, 20),
   };
 };
@@ -880,8 +883,7 @@ app.get('/api/ptm/student/:id', async (req, res) => {
     .sort((a, b) => String(b.start).localeCompare(String(a.start)));
   let parents = [];
   try {
-    parents = (await Parents.ensure([id]))[id] || [];
-    if (req.role !== 'owner') parents = noNumbers(parents);
+    parents = parentsFor(req.role, (await Parents.ensure([id]))[id] || []);
   } catch (e) {
     error = error || e.message;
   }
@@ -1381,7 +1383,7 @@ app.get('/api/parents', async (req, res) => {
     if (!m) return res.status(400).json({ error: 'Unknown TM.' });
     const ids = ((A.students && A.students[M.lhName(m)]) || []).map((s) => s.id);
     const p = await Parents.ensure(ids);
-    res.json({ parents: req.role === 'owner' ? p : Object.fromEntries(Object.entries(p).map(([k, v]) => [k, noNumbers(v)])) });
+    res.json({ parents: Object.fromEntries(Object.entries(p).map(([k, v]) => [k, parentsFor(req.role, v)])) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1408,8 +1410,10 @@ app.get('/api/students.csv', async (req, res) => {
   } catch (e) {
     console.log('[parents]', e.message);
   }
+  const hide = showParents && loadConfig().maskPhones;
   const par = (s, i) => {
-    const g = (P[s.id] || [])[i] || {};
+    const raw = (P[s.id] || [])[i] || {};
+    const g = hide ? { ...raw, phone: Parents.maskPhone(raw.phone) } : raw;
     return showParents ? [g.name || '', g.relation || '', g.phone || '', g.email || ''] : [g.name || '', g.relation || ''];
   };
   for (const m of team()) {
@@ -1502,6 +1506,7 @@ app.post('/api/config', (req, res) => {
   if (typeof b.sendTeam === 'boolean') c.sendTeam = b.sendTeam;
   if (Number(b.talkTargetMin) > 0) c.talkTargetMin = Math.round(Number(b.talkTargetMin));
   if (b.slots) for (const s of SLOTS) if (hhmm(b.slots[s])) c.slots[s] = b.slots[s];
+  if (typeof b.maskPhones === 'boolean') c.maskPhones = b.maskPhones;
   saveConfig(c);
   res.json(status(req));
 });
