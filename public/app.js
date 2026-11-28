@@ -935,7 +935,10 @@ async function tracker() {
   const all = j.tasks.map((t) => ({ ...t, lane: tkLane(t, j.today, j.now), remarks: t.remarks || [], students: t.students || [], priority: t.priority || 'Medium' }));
   const byId = (id) => all.find((t) => t.id === id);
   const mine = (t) => j.role === 'owner' || t.createdByEmail === j.myEmail;
-  const canFinish = (t) => mine(t) || t.assignee === j.me;
+  // Lighthouse (predefined) tasks close by themselves; only the owner may tick one off
+  const canFinish = (t) => (t.auto ? j.role === 'owner' : mine(t) || t.assignee === j.me);
+  const locked = (t) => t.auto && j.role !== 'owner' && t.lane !== 'done';
+  const LOCK_NOTE = '🔒 Closes by itself once cleared in Lighthouse';
 
   const dueLine = (t) => {
     if (t.lane === 'done') {
@@ -972,6 +975,7 @@ async function tracker() {
       <div class="tk-meta">${dueLine(t)}${mine(t) ? `<button class="tk-ico" data-tk="edit" title="Edit the task">✎</button>` : ''}</div>
       ${t.mail === 'sending' || t.mail === 'queued' ? '<p class="tk-small">✉ Sending the mail…</p>' : t.mail && t.mail !== 'sent' ? `<p class="tk-red tk-small" title="${esc(t.mail)}">Mail was not sent</p>` : ''}
       ${t.auto ? autoBlock(t) : ''}
+      ${locked(t) ? `<p class="tk-small">${LOCK_NOTE}</p>` : ''}
       ${t.comment && t.lane === 'done' ? `<div class="tk-result"><b>What was done</b>${esc(t.comment)}<small>${esc(t.doneBy)}</small></div>` : ''}
       ${t.remarks.length ? `<p class="tk-last"><b>${esc(t.remarks[t.remarks.length - 1].text)}</b><small>${esc(t.remarks[t.remarks.length - 1].by.split(' ')[0])}</small></p>` : ''}
       <div class="tk-actions">
@@ -1428,7 +1432,10 @@ async function tracker() {
       const t = byId(e.dataTransfer.getData('text/plain'));
       board.ondragend();
       if (!lane || !t) return;
-      if (lane.dataset.lane === 'done' && t.lane !== 'done') finish(t);
+      if (lane.dataset.lane === 'done' && t.lane !== 'done') {
+        if (canFinish(t)) finish(t);
+        else toast(t.auto ? 'This closes by itself once cleared in Lighthouse.' : 'Only the person it is assigned to can complete it.', 'err');
+      }
       else if (lane.dataset.lane !== 'done' && t.lane === 'done') {
         if (mine(t)) send({ action: 'reopen', id: t.id }, 'Reopened.');
         else toast('Only the person who assigned it can reopen it.', 'err');
